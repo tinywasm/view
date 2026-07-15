@@ -8,10 +8,10 @@ import (
 	"github.com/tinywasm/view"
 )
 
-// Factory construye el renderer bajo prueba alrededor de desc y devuelve un Driver que simula la
+// Factory construye el renderer bajo prueba alrededor del presenter y devuelve un Driver que simula la
 // interacción del usuario con él. Es el seam específico de tecnología (como ServeFunc en router).
 type Factory struct {
-	New func(t *testing.T, desc view.Descriptor) Driver
+	New func(t *testing.T, p view.Presenter) Driver
 }
 
 // Driver simula los eventos de UI sobre el renderer, sin que la suite conozca su tecnología.
@@ -102,20 +102,15 @@ func Run(t *testing.T, f Factory) {
 	t.Run("mount_triggers_list_load", func(t *testing.T) {
 		caller := &mock.Caller{}
 		record := &MockRecord{}
-		desc := view.Descriptor{
-			Title:  "Test",
-			Record: record,
-			Caller: caller,
-			ListOp: "test_list_op",
-			NewList: func() model.FielderSlice {
-				return &MockList{}
-			},
-			Project: func(list model.FielderSlice) []view.Item {
-				return nil
-			},
-		}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.FielderSlice { return &MockList{} },
+			func(list model.FielderSlice) []view.Item { return nil },
+		)
 
-		driver := f.New(t, desc)
+		driver := f.New(t, p)
 		driver.Mount()
 
 		found := false
@@ -135,15 +130,12 @@ func Run(t *testing.T, f Factory) {
 			CannedResult: []byte(`[{"id":"1","name":"Alice"},{"id":"2","name":"Bob"}]`),
 		}
 		record := &MockRecord{}
-		desc := view.Descriptor{
-			Title:  "Test",
-			Record: record,
-			Caller: caller,
-			ListOp: "test_list_op",
-			NewList: func() model.FielderSlice {
-				return &MockList{}
-			},
-			Project: func(list model.FielderSlice) []view.Item {
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.FielderSlice { return &MockList{} },
+			func(list model.FielderSlice) []view.Item {
 				l := list.(*MockList)
 				items := make([]view.Item, l.Len())
 				for i := 0; i < l.Len(); i++ {
@@ -152,9 +144,9 @@ func Run(t *testing.T, f Factory) {
 				}
 				return items
 			},
-		}
+		)
 
-		driver := f.New(t, desc)
+		driver := f.New(t, p)
 		driver.Mount()
 
 		labels := driver.Labels()
@@ -171,31 +163,28 @@ func Run(t *testing.T, f Factory) {
 			"2": {ID: "2", Name: "Bob"},
 		}
 
-		desc := view.Descriptor{
-			Title:    "Test",
-			Record:   record,
-			Caller:   caller,
-			ListOp:   "test_list_op",
-			SaveOp:   "test_save_op",
-			DeleteOp: "test_delete_op",
-			NewList: func() model.FielderSlice {
-				return &MockList{}
-			},
-			Project: func(list model.FielderSlice) []view.Item {
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.FielderSlice { return &MockList{} },
+			func(list model.FielderSlice) []view.Item {
 				return []view.Item{
 					{ID: "1", Label: "Alice"},
 					{ID: "2", Label: "Bob"},
 				}
 			},
-			Fill: func(id string) model.Model {
+			view.WithSaveOp("test_save_op"),
+			view.WithDeleteOp("test_delete_op"),
+			view.WithFill(func(id string) model.Model {
 				if id == "" {
 					return nil
 				}
 				return cache[id]
-			},
-		}
+			}),
+		)
 
-		driver := f.New(t, desc)
+		driver := f.New(t, p)
 		driver.Mount()
 		driver.Select("2")
 		driver.Save()
@@ -219,21 +208,16 @@ func Run(t *testing.T, f Factory) {
 	t.Run("save_ships_form_values", func(t *testing.T) {
 		caller := &mock.Caller{}
 		record := &MockRecord{}
-		desc := view.Descriptor{
-			Title:  "Test",
-			Record: record,
-			Caller: caller,
-			ListOp: "test_list_op",
-			SaveOp: "test_save_op",
-			NewList: func() model.FielderSlice {
-				return &MockList{}
-			},
-			Project: func(list model.FielderSlice) []view.Item {
-				return nil
-			},
-		}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.FielderSlice { return &MockList{} },
+			func(list model.FielderSlice) []view.Item { return nil },
+			view.WithSaveOp("test_save_op"),
+		)
 
-		driver := f.New(t, desc)
+		driver := f.New(t, p)
 		driver.Mount()
 		driver.SetField("name", "X")
 		driver.Save()
@@ -263,30 +247,27 @@ func Run(t *testing.T, f Factory) {
 			"2": {ID: "2", Name: "Bob"},
 		}
 
-		desc := view.Descriptor{
-			Title:    "Test",
-			Record:   record,
-			Caller:   caller,
-			ListOp:   "test_list_op",
-			DeleteOp: "test_delete_op",
-			NewList: func() model.FielderSlice {
-				return &MockList{}
-			},
-			Project: func(list model.FielderSlice) []view.Item {
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.FielderSlice { return &MockList{} },
+			func(list model.FielderSlice) []view.Item {
 				return []view.Item{
 					{ID: "1", Label: "Alice"},
 					{ID: "2", Label: "Bob"},
 				}
 			},
-			Fill: func(id string) model.Model {
+			view.WithDeleteOp("test_delete_op"),
+			view.WithFill(func(id string) model.Model {
 				if id == "" {
 					return nil
 				}
 				return cache[id]
-			},
-		}
+			}),
+		)
 
-		driver := f.New(t, desc)
+		driver := f.New(t, p)
 		driver.Mount()
 		driver.Select("2")
 		driver.Delete()
@@ -310,21 +291,16 @@ func Run(t *testing.T, f Factory) {
 	t.Run("no_save_capability_when_saveop_empty", func(t *testing.T) {
 		caller := &mock.Caller{}
 		record := &MockRecord{}
-		desc := view.Descriptor{
-			Title:  "Test",
-			Record: record,
-			Caller: caller,
-			ListOp: "test_list_op",
-			SaveOp: "", // empty means can save is false
-			NewList: func() model.FielderSlice {
-				return &MockList{}
-			},
-			Project: func(list model.FielderSlice) []view.Item {
-				return nil
-			},
-		}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.FielderSlice { return &MockList{} },
+			func(list model.FielderSlice) []view.Item { return nil },
+			// SaveOp left empty
+		)
 
-		driver := f.New(t, desc)
+		driver := f.New(t, p)
 		driver.Mount()
 		driver.Save()
 

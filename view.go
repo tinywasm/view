@@ -1,7 +1,6 @@
 package view
 
 import (
-	"github.com/tinywasm/fmt"
 	"github.com/tinywasm/model"
 	"github.com/tinywasm/router"
 )
@@ -15,67 +14,109 @@ type Item struct {
 	Description string // texto secundario (un SKU, una IP, un subtítulo)
 }
 
-// Descriptor es lo que un módulo DECLARA sobre su vista CRUD. Es DATOS, no comportamiento:
-// New construye el comportamiento (un Presenter) a partir de esto.
-type Descriptor struct {
-	Title  string      // encabezado; dónde ponerlo es cosa del renderer
-	Record model.Model // fuente del form Y payload de save/delete (el renderer genera inputs de su schema)
-
-	Caller router.Caller // el transporte, inyectado. El Descriptor NO nombra tecnología de transporte.
-
-	ListOp   string // requerido: la op que Reload invoca para traer filas
-	SaveOp   string // "" ⇒ Presenter.CanSave()==false (no se ofrece guardar)
-	DeleteOp string // "" ⇒ Presenter.CanDelete()==false (no se ofrece eliminar)
-
-	Args    func() model.Encodable            // payload de ListOp; nil = sin args
-	NewList func() model.FielderSlice          // tipo de lista FRESCO por cada Reload (ver §5)
-	Project func(list model.FielderSlice) []Item // módulo: FielderSlice decodificada → filas (+ su caché id→registro)
-	Fill    func(id string) model.Model        // registro completo de id (típicamente de la caché de Project); nil = limpiar form
-
-	SearchPlaceholder string
-}
-
-// Validate reporta los errores de configuración de los que un Presenter no puede recuperarse.
-// New lo llama; falla ruidoso en construcción, no en el primer uso.
-func (d Descriptor) Validate() error {
-	if d.Caller == nil {
-		return fmt.Err("view: Descriptor.Caller is required")
-	}
-	if d.ListOp == "" {
-		return fmt.Err("view: Descriptor.ListOp is required")
-	}
-	if model.IsNil(d.Record) {
-		return fmt.Err("view: Descriptor.Record is required")
-	}
-	if d.NewList == nil || d.Project == nil {
-		return fmt.Err("view: Descriptor.NewList and Project are required")
-	}
-	return nil
-}
-
 // Presenter es el motor agnóstico de tecnología detrás de cualquier vista CRUD: listar,
-// seleccionar, guardar, eliminar — manejado SOLO por el Caller y el model.Model del Descriptor.
-// Sin DOM, sin form. Un renderer lo envuelve, dibuja su estado (Items, Selected) y llama sus
-// métodos cuando el usuario interactúa (clic en fila → Select; clic en guardar → Save; …).
+// seleccionar, guardar, eliminar — manejado SOLO por el Caller y el model.Model de forma síncrona.
+// Sin DOM, sin form, y sin callbacks colgados.
 type Presenter interface {
+	Title() string
+	SearchPlaceholder() string
+	Record() model.Model
+
 	Items() []Item                 // la lista decodificada actual (resultado del último Reload)
-	Reload(done func(error))       // invoca ListOp y decodifica en Items; done recibe el error (nil = ok)
+	Reload() error                 // invoca ListOp y decodifica en Items síncronamente; retorna error
 
 	Selected() string              // el id que Select fijó por última vez ("" si ninguno)
 	Select(id string) model.Model  // marca id como actual y devuelve su registro (via Fill); id=="" limpia y devuelve nil
 
-	CanSave() bool                 // ¿el Descriptor ofreció SaveOp?
-	Save(done func(error))         // envía Descriptor.Record a SaveOp (ver §4: el renderer sincroniza el form ANTES)
+	CanSave() bool                 // ¿se ofreció SaveOp?
+	Save(payload model.Model) error // envía el payload explícito a SaveOp síncronamente
 
-	CanDelete() bool               // ¿el Descriptor ofreció DeleteOp?
-	Delete(id string, done func(error)) // envía el registro completo de id (via Fill) a DeleteOp
+	CanDelete() bool               // ¿se ofreció DeleteOp?
+	Delete(id string) error        // envía el registro completo de id (via Fill) a DeleteOp síncronamente
 }
 
-// New construye el Presenter de un Descriptor. Es la ÚNICA forma de construirlo: un renderer
-// envuelve lo que New devuelve, no reimplementa este motor.
-func New(d Descriptor) (Presenter, error) {
-	if err := d.Validate(); err != nil {
-		return nil, err
+// Option representa una opción funcional de configuración opcional para el presentador.
+type Option func(*presenter)
+
+// WithTitle asigna un título a la vista.
+func WithTitle(title string) Option {
+	return func(p *presenter) {
+		p.title = title
 	}
-	return &presenter{d: d}, nil // impl no exportada: superficie mínima (principio 5)
+}
+
+// WithSearchPlaceholder asigna un texto de ayuda para la barra de búsqueda.
+func WithSearchPlaceholder(placeholder string) Option {
+	return func(p *presenter) {
+		p.searchPlaceholder = placeholder
+	}
+}
+
+// WithSaveOp asigna la operación de guardado (SaveOp).
+func WithSaveOp(op string) Option {
+	return func(p *presenter) {
+		p.saveOp = op
+	}
+}
+
+// WithDeleteOp asigna la operación de eliminación (DeleteOp).
+func WithDeleteOp(op string) Option {
+	return func(p *presenter) {
+		p.deleteOp = op
+	}
+}
+
+// WithArgs inyecta una función para obtener los argumentos de la ListOp.
+func WithArgs(args func() model.Encodable) Option {
+	return func(p *presenter) {
+		p.args = args
+	}
+}
+
+// WithFill inyecta una función para mapear un id a su modelo completo (típicamente de la caché).
+func WithFill(fill func(id string) model.Model) Option {
+	return func(p *presenter) {
+		p.fill = fill
+	}
+}
+
+// New construye el Presenter a partir de sus componentes requeridos invariantes
+// en tiempo de compilación, más opciones funcionales adicionales.
+func New(
+	caller router.Caller,
+	record model.Model,
+	listOp string,
+	newList func() model.FielderSlice,
+	project func(list model.FielderSlice) []Item,
+	opts ...Option,
+) Presenter {
+	if caller == nil {
+		panic("view: New: caller is required")
+	}
+	if model.IsNil(record) {
+		panic("view: New: record is required")
+	}
+	if listOp == "" {
+		panic("view: New: listOp is required")
+	}
+	if newList == nil {
+		panic("view: New: newList is required")
+	}
+	if project == nil {
+		panic("view: New: project is required")
+	}
+
+	p := &presenter{
+		caller:  caller,
+		record:  record,
+		listOp:  listOp,
+		newList: newList,
+		project: project,
+	}
+
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	return p
 }

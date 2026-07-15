@@ -10,21 +10,15 @@ import (
 // Sigue fielmente la especificación del presentador y sirve de puente en las pruebas de conformidad.
 type Renderer struct {
 	p    view.Presenter
-	desc view.Descriptor
 	form map[string]string
 }
 
-// New crea una instancia del renderer headless para un Descriptor dado.
-func New(desc view.Descriptor) (*Renderer, error) {
-	p, err := view.New(desc)
-	if err != nil {
-		return nil, err
-	}
+// New crea una instancia del renderer headless para un Presenter dado.
+func New(p view.Presenter) *Renderer {
 	return &Renderer{
 		p:    p,
-		desc: desc,
 		form: make(map[string]string),
-	}, nil
+	}
 }
 
 // Presenter expone el presentador interno para inspección o uso directo.
@@ -32,9 +26,9 @@ func (r *Renderer) Presenter() view.Presenter {
 	return r.p
 }
 
-// Mount inicia la recarga de datos en el presentador.
+// Mount inicia la recarga de datos en el presentador de forma síncrona.
 func (r *Renderer) Mount() {
-	r.p.Reload(nil)
+	_ = r.p.Reload()
 }
 
 // Labels devuelve las etiquetas de los elementos cargados en el presentador.
@@ -78,9 +72,9 @@ func (r *Renderer) SetField(name, value string) {
 }
 
 // Save sincroniza todos los valores acumulados en el formulario headless en el Record
-// del Descriptor, y luego llama a Presenter.Save para enviar los datos.
+// del Presenter, y luego llama a Presenter.Save pasándole el payload explícito.
 func (r *Renderer) Save() {
-	rec := r.desc.Record
+	rec := r.p.Record()
 	if !model.IsNil(rec) {
 		schema := rec.Schema()
 		pointers := rec.Pointers()
@@ -108,10 +102,10 @@ func (r *Renderer) Save() {
 			}
 		}
 	}
-	r.p.Save(nil)
+	_ = r.p.Save(rec)
 }
 
 // Delete elimina el registro seleccionado.
 func (r *Renderer) Delete() {
-	r.p.Delete(r.p.Selected(), nil)
+	_ = r.p.Delete(r.p.Selected())
 }

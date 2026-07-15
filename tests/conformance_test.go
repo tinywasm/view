@@ -10,11 +10,8 @@ import (
 
 func TestConformance(t *testing.T) {
 	conformance.Run(t, conformance.Factory{
-		New: func(t *testing.T, desc view.Descriptor) conformance.Driver {
-			r, err := mock.New(desc)
-			if err != nil {
-				t.Fatalf("failed to create mock renderer: %v", err)
-			}
+		New: func(t *testing.T, p view.Presenter) conformance.Driver {
+			r := mock.New(p)
 			return conformance.Driver{
 				Mount:    r.Mount,
 				Labels:   r.Labels,
