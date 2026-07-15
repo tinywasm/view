@@ -2,7 +2,6 @@ package view
 
 import (
 	"github.com/tinywasm/fmt"
-	"github.com/tinywasm/json"
 	"github.com/tinywasm/model"
 	"github.com/tinywasm/router"
 )
@@ -50,25 +49,18 @@ func (p *presenter) Reload() error {
 		listArgs = p.args()
 	}
 
-	ch := make(chan error, 1)
-	var rawResult []byte
-
-	p.caller.Call(p.listOp, listArgs, func(result []byte, err error) {
-		rawResult = result
-		ch <- err
-	})
-
-	if err := <-ch; err != nil {
-		return err
-	}
-
 	list := p.newList()
 	dec, ok := list.(model.Decodable)
 	if !ok {
 		return fmt.Err("view: list returned by newList does not implement model.Decodable")
 	}
 
-	if err := json.Decode(rawResult, dec); err != nil {
+	// The transport decodes the response into `dec` (its concrete list type); the
+	// presenter never touches the wire codec. Synchronous over the async Caller via
+	// a buffered channel — see the package doc.
+	ch := make(chan error, 1)
+	p.caller.Call(p.listOp, listArgs, dec, func(err error) { ch <- err })
+	if err := <-ch; err != nil {
 		return err
 	}
 
@@ -104,9 +96,7 @@ func (p *presenter) Save(payload model.Model) error {
 	}
 
 	ch := make(chan error, 1)
-	p.caller.Call(p.saveOp, payload, func(result []byte, err error) {
-		ch <- err
-	})
+	p.caller.Call(p.saveOp, payload, nil, func(err error) { ch <- err })
 	return <-ch
 }
 
@@ -125,8 +115,6 @@ func (p *presenter) Delete(id string) error {
 	}
 
 	ch := make(chan error, 1)
-	p.caller.Call(p.deleteOp, rec, func(result []byte, err error) {
-		ch <- err
-	})
+	p.caller.Call(p.deleteOp, rec, nil, func(err error) { ch <- err })
 	return <-ch
 }

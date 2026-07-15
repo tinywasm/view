@@ -1,13 +1,15 @@
-# view
+# tinywasm/view
+<img src="docs/img/badges.svg">
 
 Tech-agnostic CRUD view contract: a module declares its view options and presenters, and any renderer draws it.
 
 ## Design Goals
 
 1. **Agnostic to UI Technology**: The domain module declares its intention, schema, operations, and list projections without importing any specific UI package (such as `dom`, `form`, or `html`). This allows changing renderers seamlessly (e.g. standard layout, HTMX, Native UI, SSR) without touching any business/domain module.
-2. **Compile-time Safety**: Mandatory dependencies (such as the `Caller`, template `Record`, `ListOp`, `NewList`, and `Project` callbacks) are required as direct positional parameters of the constructor `view.New`. Purely optional features (such as `Title`, `SaveOp`, `DeleteOp`, `Fill`, `Args`, etc.) are configured via functional options. There are no exposed configuration structs where fields could be accidentally left unassigned.
-3. **Synchronous Go Idiomatic Design**: `Reload`, `Save`, and `Delete` block synchronously, returning an `error`. This eliminates continuation-passing style (CPS) callbacks (`done func(error)`), avoiding dangling UI states and complex test synchronization. Internally, the asynchronous network caller is seamlessly wrapped with blocking channels.
-4. **Explicit Form Synchronization**: The presenter's `Save(payload model.Model)` explicitly accepts the synchronized record, establishing an obvious, unidirectional data flow and eliminating the risk of mutations on shared pointers behind the scenes.
+2. **Agnostic to Codec and Transport**: `view` imports only `model` and `router` — **never** a wire codec (`json`, `jsvalue`). The list response is decoded into the module's typed list by `router.Caller` (the transport supplies the codec), the call-side mirror of `router.Context.Decode`/`Encode`. A view, like a domain module, works purely in typed `model` values.
+3. **Compile-time Safety**: Mandatory dependencies (such as the `Caller`, template `Record`, `ListOp`, `NewList`, and `Project` callbacks) are required as direct positional parameters of the constructor `view.New`. Purely optional features (such as `Title`, `SaveOp`, `DeleteOp`, `Fill`, `Args`, etc.) are configured via functional options. There are no exposed configuration structs where fields could be accidentally left unassigned.
+4. **Synchronous Go Idiomatic Design**: `Reload`, `Save`, and `Delete` block synchronously, returning an `error`. This eliminates continuation-passing style (CPS) callbacks (`done func(error)`), avoiding dangling UI states and complex test synchronization. Internally, the asynchronous network caller is seamlessly wrapped with blocking channels.
+5. **Explicit Form Synchronization**: The presenter's `Save(payload model.Model)` explicitly accepts the synchronized record, establishing an obvious, unidirectional data flow and eliminating the risk of mutations on shared pointers behind the scenes.
 
 ## API Reference
 
