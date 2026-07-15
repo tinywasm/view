@@ -4,9 +4,44 @@ import (
 	"testing"
 
 	"github.com/tinywasm/model"
-	"github.com/tinywasm/router/mock"
+	"github.com/tinywasm/router"
 	"github.com/tinywasm/view"
 )
+
+// FakeCall records one invocation the suite (or a consumer's module test) can inspect.
+type FakeCall struct {
+	Op   string
+	Args model.Encodable
+}
+
+// FakeCaller is a codec-free router.Caller test double. Unlike router/mock.Caller it does
+// NOT decode a wire response — it fills the typed target directly via Reply — so this
+// package (and any renderer or module that imports it for tests) depends only on model and
+// router, never a codec. That is the same discipline router/conformance keeps: the arnés of
+// a contract must not drag in an implementation.
+type FakeCaller struct {
+	Calls []FakeCall
+	// Reply fills `into` with canned TYPED data for op (no serialization); nil = no result.
+	Reply func(op string, into model.Decodable)
+	// Err, if set, is what every Call reports (and suppresses Reply).
+	Err error
+}
+
+func (c *FakeCaller) Call(op string, args model.Encodable, into model.Decodable, done func(err error)) {
+	c.Calls = append(c.Calls, FakeCall{Op: op, Args: args})
+	if c.Err == nil && c.Reply != nil && into != nil {
+		c.Reply(op, into)
+	}
+	if done != nil {
+		done(c.Err)
+	}
+}
+
+func (c *FakeCaller) Dispatch(op string, args model.Encodable) {
+	c.Calls = append(c.Calls, FakeCall{Op: op, Args: args})
+}
+
+var _ router.Caller = (*FakeCaller)(nil)
 
 // Factory construye el renderer bajo prueba alrededor del presenter y devuelve un Driver que simula la
 // interacción del usuario con él. Es el seam específico de tecnología (como ServeFunc en router).
@@ -100,7 +135,7 @@ func (m *MockList) Append() model.Fielder {
 // Run ejecuta el conjunto completo de cláusulas de conformidad del renderer.
 func Run(t *testing.T, f Factory) {
 	t.Run("mount_triggers_list_load", func(t *testing.T) {
-		caller := &mock.Caller{}
+		caller := &FakeCaller{}
 		record := &MockRecord{}
 		p := view.New(
 			caller,
@@ -126,8 +161,14 @@ func Run(t *testing.T, f Factory) {
 	})
 
 	t.Run("list_renders_item_labels", func(t *testing.T) {
-		caller := &mock.Caller{
-			CannedResult: []byte(`[{"id":"1","name":"Alice"},{"id":"2","name":"Bob"}]`),
+		caller := &FakeCaller{
+			Reply: func(op string, into model.Decodable) {
+				l := into.(*MockList)
+				a := l.Append().(*MockRecord)
+				a.ID, a.Name = "1", "Alice"
+				b := l.Append().(*MockRecord)
+				b.ID, b.Name = "2", "Bob"
+			},
 		}
 		record := &MockRecord{}
 		p := view.New(
@@ -156,7 +197,7 @@ func Run(t *testing.T, f Factory) {
 	})
 
 	t.Run("select_fills_form", func(t *testing.T) {
-		caller := &mock.Caller{}
+		caller := &FakeCaller{}
 		record := &MockRecord{}
 		cache := map[string]*MockRecord{
 			"1": {ID: "1", Name: "Alice"},
@@ -206,7 +247,7 @@ func Run(t *testing.T, f Factory) {
 	})
 
 	t.Run("save_ships_form_values", func(t *testing.T) {
-		caller := &mock.Caller{}
+		caller := &FakeCaller{}
 		record := &MockRecord{}
 		p := view.New(
 			caller,
@@ -240,7 +281,7 @@ func Run(t *testing.T, f Factory) {
 	})
 
 	t.Run("delete_ships_selected_record", func(t *testing.T) {
-		caller := &mock.Caller{}
+		caller := &FakeCaller{}
 		record := &MockRecord{}
 		cache := map[string]*MockRecord{
 			"1": {ID: "1", Name: "Alice"},
@@ -289,7 +330,7 @@ func Run(t *testing.T, f Factory) {
 	})
 
 	t.Run("no_save_capability_when_saveop_empty", func(t *testing.T) {
-		caller := &mock.Caller{}
+		caller := &FakeCaller{}
 		record := &MockRecord{}
 		p := view.New(
 			caller,
