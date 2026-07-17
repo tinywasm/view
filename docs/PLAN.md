@@ -10,7 +10,7 @@
 (ver `docs/PLAN_MODEL.md`, que se ejecuta en el repo de `model`). Una vez publicado:
 
 ```bash
-go get github.com/tinywasm/model@<versión-con-ModelSlice>
+go get github.com/tinywasm/model@<v0.1.0-con-ModelSlice>
 ```
 
 Todo lo demás en este plan es local a `view`.
