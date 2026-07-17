@@ -14,35 +14,16 @@ func TestModulePerspective(t *testing.T) {
 		CannedResult: []byte(`[{"id":"m1","name":"Module 1"},{"id":"m2","name":"Module 2"}]`),
 	}
 	record := &conformance.MockRecord{}
-	cache := map[string]*conformance.MockRecord{
-		"m1": {ID: "m1", Name: "Module 1"},
-		"m2": {ID: "m2", Name: "Module 2"},
-	}
 
 	p := view.New(
 		caller,
 		record,
 		"list_items",
-		func() model.FielderSlice {
+		func() model.ModelSlice {
 			return &conformance.MockList{}
-		},
-		func(list model.FielderSlice) []view.Item {
-			l := list.(*conformance.MockList)
-			items := make([]view.Item, l.Len())
-			for i := 0; i < l.Len(); i++ {
-				mr := l.At(i).(*conformance.MockRecord)
-				items[i] = view.Item{ID: mr.ID, Label: mr.Name}
-			}
-			return items
 		},
 		view.WithSaveOp("save_item"),
 		view.WithDeleteOp("delete_item"),
-		view.WithFill(func(id string) model.Model {
-			if id == "" {
-				return nil
-			}
-			return cache[id]
-		}),
 	)
 
 	// 1. Reload -> ListOp
@@ -74,7 +55,11 @@ func TestModulePerspective(t *testing.T) {
 	}
 
 	// 3. Save -> SaveOp with payload
-	if err := p.Save(record); err != nil {
+	s, ok := p.(view.Saver)
+	if !ok {
+		t.Fatalf("expected presenter to implement view.Saver")
+	}
+	if err := s.Save(record); err != nil {
 		t.Fatalf("save failed: %v", err)
 	}
 
@@ -89,7 +74,11 @@ func TestModulePerspective(t *testing.T) {
 	}
 
 	// 4. Delete -> DeleteOp with record from Fill
-	if err := p.Delete("m1"); err != nil {
+	d, ok := p.(view.Deleter)
+	if !ok {
+		t.Fatalf("expected presenter to implement view.Deleter")
+	}
+	if err := d.Delete("m1"); err != nil {
 		t.Fatalf("delete failed: %v", err)
 	}
 
@@ -103,8 +92,8 @@ func TestModulePerspective(t *testing.T) {
 		t.Errorf("expected delete payload to represent 'm1', got %v", deletedRecord)
 	}
 
-	// 5. Select("") -> nil
-	p.Select("")
+	// 5. Deselect() -> Selected() is cleared
+	p.Deselect()
 	if p.Selected() != "" {
 		t.Errorf("expected selected to be cleared")
 	}

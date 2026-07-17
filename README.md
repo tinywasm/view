@@ -212,6 +212,13 @@ func (r *Renderer) OnSearchTyped(term string) {
 6. **Glue lives here, once** — projection loop, id→model index and capability wiring
    are implemented in this package, not repeated in every module.
 
+## WebAssembly/TinyGo Compatibility
+
+To ensure 100% compatibility with WebAssembly (WASM) and TinyGo targets, standard library packages (such as `fmt`, `encoding/json`, or `encoding/binary`) should be avoided in production code. Use the following tech-agnostic, low-allocation alternatives instead:
+- `github.com/tinywasm/fmt` for formatting and error creation.
+- `github.com/tinywasm/json` for JSON serialization/deserialization.
+- `github.com/tinywasm/binary` for binary protocols.
+
 ## Reference and Conformance
 
 - **`view/mock`** — headless reference renderer for browser-less simulation and unit

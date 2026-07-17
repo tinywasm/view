@@ -9,3 +9,5 @@ require (
 )
 
 require github.com/tinywasm/json v0.5.12 // indirect
+
+replace github.com/tinywasm/model => ./model_fork

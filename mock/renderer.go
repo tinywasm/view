@@ -6,14 +6,13 @@ import (
 	"github.com/tinywasm/view"
 )
 
-// Renderer es un renderer headless (sin DOM) de referencia para pruebas y demostración.
-// Sigue fielmente la especificación del presentador y sirve de puente en las pruebas de conformidad.
+// Renderer is a headless reference renderer for browser-less simulation and tests.
 type Renderer struct {
 	p    view.Presenter
 	form map[string]string
 }
 
-// New crea una instancia del renderer headless para un Presenter dado.
+// New creates a reference renderer instance for a given Presenter.
 func New(p view.Presenter) *Renderer {
 	return &Renderer{
 		p:    p,
@@ -21,17 +20,17 @@ func New(p view.Presenter) *Renderer {
 	}
 }
 
-// Presenter expone el presentador interno para inspección o uso directo.
+// Presenter returns the underlying presenter.
 func (r *Renderer) Presenter() view.Presenter {
 	return r.p
 }
 
-// Mount inicia la recarga de datos en el presentador de forma síncrona.
+// Mount triggers loading data into the presenter synchronously.
 func (r *Renderer) Mount() {
 	_ = r.p.Reload()
 }
 
-// Labels devuelve las etiquetas de los elementos cargados en el presentador.
+// Labels returns labels of the loaded items.
 func (r *Renderer) Labels() []string {
 	items := r.p.Items()
 	labels := make([]string, len(items))
@@ -41,7 +40,7 @@ func (r *Renderer) Labels() []string {
 	return labels
 }
 
-// Select marca un id como seleccionado, carga su modelo completo en el formulario headless.
+// Select marks id as selected, and populates r.form with the record's schema fields.
 func (r *Renderer) Select(id string) {
 	m := r.p.Select(id)
 	r.form = make(map[string]string)
@@ -66,14 +65,33 @@ func (r *Renderer) Select(id string) {
 	}
 }
 
-// SetField asigna un valor a un campo en el formulario headless.
+// Deselect clears the selection and form.
+func (r *Renderer) Deselect() {
+	r.p.Deselect()
+	r.form = make(map[string]string)
+}
+
+// Filter filters the presenter items and returns their labels.
+func (r *Renderer) Filter(term string) []string {
+	items := r.p.Filter(term)
+	labels := make([]string, len(items))
+	for i, item := range items {
+		labels[i] = item.Label
+	}
+	return labels
+}
+
+// SetField sets a form field value.
 func (r *Renderer) SetField(name, value string) {
 	r.form[name] = value
 }
 
-// Save sincroniza todos los valores acumulados en el formulario headless en el Record
-// del Presenter, y luego llama a Presenter.Save pasándole el payload explícito.
+// Save synchronizes the headless form values with the Record, and calls Save.
 func (r *Renderer) Save() {
+	s, ok := r.p.(view.Saver)
+	if !ok {
+		return
+	}
 	rec := r.p.Record()
 	if !model.IsNil(rec) {
 		schema := rec.Schema()
@@ -102,10 +120,14 @@ func (r *Renderer) Save() {
 			}
 		}
 	}
-	_ = r.p.Save(rec)
+	_ = s.Save(rec)
 }
 
-// Delete elimina el registro seleccionado.
+// Delete deletes the selected record.
 func (r *Renderer) Delete() {
-	_ = r.p.Delete(r.p.Selected())
+	d, ok := r.p.(view.Deleter)
+	if !ok {
+		return
+	}
+	_ = d.Delete(r.p.Selected())
 }

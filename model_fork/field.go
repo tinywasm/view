@@ -1,0 +1,407 @@
+package model
+
+import "github.com/tinywasm/fmt"
+
+// FieldType represents the abstract storage type of a struct field.
+type FieldType int
+
+const (
+	FieldText        FieldType = iota // Any string
+	FieldInt                          // Any integer
+	FieldFloat                        // Any float
+	FieldBool                         // Boolean
+	FieldBlob                         // Binary data ([]byte)
+	FieldStruct                       // Nested struct (implements Fielder)
+	FieldIntSlice                     // []int
+	FieldStructSlice                  // []Fielder
+	FieldRaw                          // Pre-serialized JSON — emitted inline, no quoting
+)
+
+var fieldTypeNames = []string{"text", "int", "float", "bool", "blob", "struct", "intslice", "structslice", "raw"}
+
+// RawJSON is a type alias for string that signals pre-serialized JSON content.
+// Like encoding/json.RawMessage, it tells the encoder to emit the value inline
+// without quoting or re-serializing, avoiding linter warnings about the `json:",raw"` tag.
+//
+// Usage:
+//
+//	type Result struct {
+//	    Content RawJSON            // no tag needed; type itself conveys intent
+//	    Error   RawJSON `json:",omitempty"`
+//	}
+//
+// The encoder detects RawJSON at code-generation time (ormc), marking the field
+// as FieldRaw in the Schema(), and tinywasm/json handles it without re-serializing.
+type RawJSON = string
+
+func (ft FieldType) String() string {
+	if int(ft) >= 0 && int(ft) < len(fieldTypeNames) {
+		return fieldTypeNames[ft]
+	}
+	return "unknown"
+}
+
+// FieldDB contains database-specific metadata.
+// Extracted from Field to keep transport/UI structs lean.
+type FieldDB struct {
+	PK      bool
+	Unique  bool
+	AutoInc bool
+
+	// RefColumn/OnDelete apply only when the owning Field is a scalar foreign key
+	// (Field.Ref set — composition kinds carry their ref in the constructor and
+	// never set Field.Ref; see Field.Ref doc).
+	// Both are optional: RefColumn empty = auto-detect the PK of Ref's table;
+	// OnDelete empty = generator default (e.g. CASCADE).
+	RefColumn string
+	OnDelete  string
+}
+
+// Field describes a single field in a struct's schema.
+// It provides type metadata, constraint flags, and validation rules
+// used by database (orm), transport (json), UI (form), and validation layers.
+//
+// Validation rules are provided by its Type (Kind) and embedded via Permitted.
+// Field.Validate(value) checks both. A nil Type (Kind) is an error — the
+// ecosystem is fail-closed by design.
+//
+// Deterministic Field.Type.Storage() → Go type mapping:
+//
+// | Storage | Go Type |
+// |---|---|
+// | FieldText, FieldRaw | string |
+// | FieldInt | int64 |
+// | FieldFloat | float64 |
+// | FieldBool | bool |
+// | FieldBlob | []byte |
+// | FieldIntSlice | []int |
+// | FieldStruct | type of the kind's ref — Struct(ref) |
+// | FieldStructSlice | [] of the kind's ref — StructSlice(ref) |
+type Field struct {
+	Name      string
+	Type      Kind
+	NotNull   bool
+	OmitEmpty bool     // omit from JSON when zero value
+	DB        *FieldDB // nil for formonly/transport structs
+	// Ref is the Definition of the table this column references (scalar foreign key).
+	// e.g. a "staff_id int64" field pointing to StaffModel. It drives DDL FK constraint
+	// generation (orm.FieldExt/SchemaExt) — see FieldDB.RefColumn/OnDelete.
+	// It does NOT change the field's Go type, which stays the plain scalar mapping from Type.
+	//
+	// Composition (FieldStruct/FieldStructSlice) no longer uses this slot; the nested
+	// Definition is now a mandatory parameter of the Kind constructor (model.Struct(ref)).
+	// Setting Field.Ref on a composition field is a contradiction and results in a
+	// generation error in ormc.
+	//
+	// A *Definition with a bidirectional Ref to another package-level Definition in the same
+	// package cannot be expressed as a single literal (Go rejects it: "initialization cycle") —
+	// this is a Go language limitation, not a model design gap. Two-phase assignment via init()
+	// is a workaround but is out of scope for ormc to auto-detect; report it if ever needed.
+	Ref *Definition
+	Exclude   bool     // field exists on the generated struct but is NOT part of
+	                   // Pointers()/EncodeFields()/DecodeFields() — no persistence, no wire codec.
+	                   // Use for hand-managed data the struct must carry but ormc must not touch
+	                   // (e.g. a password hash set via a side channel, never scanned/serialized).
+	Permitted          // embedded: validation rules (characters, min/max)
+}
+
+// IsPK returns true if the field is a Primary Key.
+func (f Field) IsPK() bool { return f.DB != nil && f.DB.PK }
+
+// IsUnique returns true if the field has a Unique constraint.
+func (f Field) IsUnique() bool { return f.DB != nil && f.DB.Unique }
+
+// IsAutoInc returns true if the field is Auto-Increment.
+func (f Field) IsAutoInc() bool { return f.DB != nil && f.DB.AutoInc }
+
+// Validate checks a string value against this field's constraints.
+// Checks NotNull first, then Kind, then Permitted (length and chars).
+//
+// Security note: standard Kinds (Text, Int, Float, Bool) provide an input-boundary
+// floor (A03 Injection/XSS) by using whitelists that exclude HTML-dangerous
+// characters. ValidateFields provides implicit fail-closed protection for
+// form-submitted data. Data from external sources (DB reads, API responses)
+// bypasses this check and must be encoded at the output layer.
+//
+// The base Text kind's charset is a DEFAULT floor, not a mandate: a field
+// that declares its own positive whitelist (Letters/Numbers/Extra/...)
+// REPLACES it — the author's explicit charset governs (e.g. a CSS-selector
+// field permitting '#'). The author then owns the XSS exposure of any
+// dangerous character it whitelists (encode at the output layer). Semantic
+// kinds (email, ...) and non-text kinds (Int, Float, Bool) always validate.
+func (f Field) Validate(value string) error {
+	if f.NotNull && value == "" {
+		return fmt.Err(f.Name, "required")
+	}
+	if value == "" {
+		return nil // empty + not required = ok
+	}
+
+	if f.Type == nil {
+		return fmt.Err(f.Name, "kind required")
+	}
+
+	// Baseline kind validation — skipped only when the field declares its
+	// own positive whitelist AND the kind is the base Text kind (its floor
+	// is a default; an explicit field charset replaces it).
+	skipKindFloor := f.hasPositiveCharRules() && f.Type.Name() == fieldTypeNames[FieldText]
+	if !skipKindFloor {
+		if err := f.Type.Validate(value); err != nil {
+			return fmt.Err(f.Name, err)
+		}
+	}
+
+	// Always check length if configured, regardless of character rules
+	if f.Minimum > 0 || f.Maximum > 0 {
+		if err := f.Permitted.validateLength(f.Name, value); err != nil {
+			return err
+		}
+	}
+
+	// Only run character/substring validation if any char-rule is configured
+	if f.hasPermittedRules() {
+		return f.Permitted.validateChars(f.Name, value)
+	}
+	return nil
+}
+
+// hasPermittedRules returns true if any character-based Permitted field is non-zero.
+func (f Field) hasPermittedRules() bool {
+	return f.hasPositiveCharRules() ||
+		len(f.NotAllowed) > 0 || f.StartWith != nil
+}
+
+// hasPositiveCharRules returns true if the field declares an explicit
+// character whitelist. NotAllowed/StartWith alone don't count: they
+// restrict, they don't define a charset — so they never lift the kind floor.
+func (f Field) hasPositiveCharRules() bool {
+	return f.Letters || f.Tilde || f.Numbers || f.Spaces ||
+		f.BreakLine || f.Tab || len(f.Extra) > 0
+}
+
+// CRUD action bytes — the single source of truth for the ecosystem-wide
+// action convention used by Validator, ValidateFields, and downstream
+// libraries (crudp HTTP mapping, mcp Tool.Action / RBAC, form).
+//
+// Deliberately plain byte constants (not a named type) so every existing
+// `action byte` signature accepts them unchanged.
+//
+// Not to be confused with orm.Action (an int enum describing query
+// execution plans) — that is a different, orm-internal concept.
+const (
+	ActionCreate byte = 'c'
+	ActionRead   byte = 'r'
+	ActionUpdate byte = 'u'
+	ActionDelete byte = 'd'
+)
+
+// ValidateFields validates all fields of a Fielder based on the action.
+// For each FieldText field, reads the string value and calls Field.Validate.
+// For non-text fields with NotNull, checks against zero value.
+//
+// Common actions are ActionCreate, ActionUpdate, and ActionDelete.
+//
+// This is the single validation entry point — ormc-generated Validate()
+// methods call this function first.
+func ValidateFields(action byte, f Fielder) error {
+	schema := f.Schema()
+	ptrs := f.Pointers()
+	for i, field := range schema {
+		if field.Type == nil {
+			return fmt.Err(field.Name, "kind required")
+		}
+		ft := field.Type.Storage()
+
+		// ActionDelete: only PK required, skip everything else
+		if action == ActionDelete {
+			if field.IsPK() {
+				switch ft {
+				case FieldText, FieldRaw:
+					val, _ := ReadStringPtr(ptrs[i])
+					if val == "" {
+						return fmt.Err(field.Name, "required")
+					}
+				default:
+					if IsZeroPtr(ptrs[i], ft) {
+						return fmt.Err(field.Name, "required")
+					}
+				}
+			}
+			continue
+		}
+
+		// ActionCreate: skip PK+AutoInc (DB assigns it)
+		if action == ActionCreate && field.IsPK() && field.IsAutoInc() {
+			continue
+		}
+
+		switch ft {
+		case FieldText, FieldRaw:
+			val, _ := ReadStringPtr(ptrs[i])
+
+			// PK always required (in ActionCreate without AutoInc, in ActionUpdate, and any other)
+			if field.IsPK() && val == "" {
+				return fmt.Err(field.Name, "required")
+			}
+
+			if err := field.Validate(val); err != nil {
+				return err
+			}
+
+		case FieldStruct:
+			// Recursive validation for nested structs
+			if validator, ok := ptrs[i].(Validator); ok {
+				if err := validator.Validate(action); err != nil {
+					return err
+				}
+			} else if fielder, ok := ptrs[i].(Fielder); ok {
+				if err := ValidateFields(action, fielder); err != nil {
+					return err
+				}
+			}
+
+		default:
+			// PK always required
+			if field.IsPK() && IsZeroPtr(ptrs[i], ft) {
+				return fmt.Err(field.Name, "required")
+			}
+			// Non-text fields: only check NotNull (zero value check)
+			if field.NotNull && IsZeroPtr(ptrs[i], ft) {
+				return fmt.Err(field.Name, "required")
+			}
+		}
+	}
+	return nil
+}
+
+// IsZeroPtr checks if a pointer points to a zero value.
+func IsZeroPtr(ptr any, ft FieldType) bool {
+	switch ft {
+	case FieldText, FieldRaw:
+		if p, ok := ptr.(*string); ok && p != nil {
+			return *p == ""
+		}
+	case FieldInt:
+		switch p := ptr.(type) {
+		case *int64:
+			return *p == 0
+		case *int:
+			return *p == 0
+		case *int32:
+			return *p == 0
+		case *uint:
+			return *p == 0
+		case *uint32:
+			return *p == 0
+		case *uint64:
+			return *p == 0
+		}
+	case FieldFloat:
+		switch p := ptr.(type) {
+		case *float64:
+			return *p == 0
+		case *float32:
+			return *p == 0
+		}
+	case FieldBool:
+		if p, ok := ptr.(*bool); ok {
+			return !*p
+		}
+	case FieldBlob:
+		if p, ok := ptr.(*[]byte); ok {
+			return len(*p) == 0
+		}
+	case FieldIntSlice:
+		if p, ok := ptr.(*[]int); ok {
+			return len(*p) == 0
+		}
+	case FieldStructSlice:
+		// Since we handle various slice types and tinywasm avoids reflection,
+		// we check for nil pointer or rely on the specific implementation to provide length.
+		// For zero-check purposes, if it's a pointer to a slice, we check if it's nil.
+		return ptr == nil
+	}
+	return false
+}
+
+// ReadValues reads field values through Pointers by dereferencing based on Storage type.
+// Used by consumers that need []any (e.g., orm for SQL args).
+// Hot-path consumers (json, form) should read through Pointers directly to avoid boxing.
+func ReadValues(schema []Field, ptrs []any) []any {
+	vals := make([]any, len(schema))
+	for i, f := range schema {
+		if ptrs[i] == nil || f.Type == nil {
+			continue
+		}
+		switch f.Type.Storage() {
+		case FieldText, FieldRaw:
+			if p, ok := ptrs[i].(*string); ok && p != nil {
+				vals[i] = *p
+			}
+		case FieldInt:
+			switch p := ptrs[i].(type) {
+			case *int64:
+				if p != nil {
+					vals[i] = *p
+				}
+			case *int:
+				if p != nil {
+					vals[i] = *p
+				}
+			case *int32:
+				if p != nil {
+					vals[i] = *p
+				}
+			case *uint:
+				if p != nil {
+					vals[i] = *p
+				}
+			case *uint32:
+				if p != nil {
+					vals[i] = *p
+				}
+			case *uint64:
+				if p != nil {
+					vals[i] = *p
+				}
+			}
+		case FieldFloat:
+			switch p := ptrs[i].(type) {
+			case *float64:
+				if p != nil {
+					vals[i] = *p
+				}
+			case *float32:
+				if p != nil {
+					vals[i] = *p
+				}
+			}
+		case FieldBool:
+			if p, ok := ptrs[i].(*bool); ok && p != nil {
+				vals[i] = *p
+			}
+		case FieldBlob:
+			if p, ok := ptrs[i].(*[]byte); ok && p != nil {
+				vals[i] = *p
+			}
+		case FieldStruct:
+			vals[i] = ptrs[i] // pointer to nested struct IS the Fielder
+		case FieldIntSlice:
+			if p, ok := ptrs[i].(*[]int); ok && p != nil {
+				vals[i] = *p
+			}
+		case FieldStructSlice:
+			vals[i] = ptrs[i] // Pass the slice pointer as is
+		}
+	}
+	return vals
+}
+
+// ReadStringPtr reads a string from a typed pointer.
+// Returns the string value and true if the pointer is *string, or ("", false) otherwise.
+func ReadStringPtr(ptr any) (string, bool) {
+	if p, ok := ptr.(*string); ok && p != nil {
+		return *p, true
+	}
+	return "", false
+}

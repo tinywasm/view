@@ -5,89 +5,101 @@ import (
 	"github.com/tinywasm/router"
 )
 
-// Item es UNA fila proyectada de la lista — la forma neutra desde la que cualquier renderer
-// dibuja una tarjeta/fila. No lleva markup: solo lo que una lista necesita para mostrar y dejar
-// elegir un registro.
+// Item is ONE projected row of the list — the neutral form any renderer can draw.
+// No markup: only what a list needs to display and let the user pick a record.
 type Item struct {
-	ID          string // clave de selección
-	Label       string // texto principal
-	Description string // texto secundario (un SKU, una IP, un subtítulo)
+	ID          string // selection key
+	Label       string // primary text
+	Description string // secondary text (a SKU, an IP, a subtitle)
 }
 
-// Presenter es el motor agnóstico de tecnología detrás de cualquier vista CRUD: listar,
-// seleccionar, guardar, eliminar — manejado SOLO por el Caller y el model.Model de forma síncrona.
-// Sin DOM, sin form, y sin callbacks colgados.
+// Itemizer is implemented by a domain record that knows how to project itself as a
+// list row. It is the ONLY view-specific code a module writes on its model.
+type Itemizer interface {
+	Item() Item
+}
+
+// Presenter is the UI-agnostic core behind any CRUD view: list, select, reload.
+// Always present. Save/Delete are separate capabilities (see Saver/Deleter).
 type Presenter interface {
 	Title() string
 	SearchPlaceholder() string
 	Record() model.Model
 
-	Items() []Item                 // la lista decodificada actual (resultado del último Reload)
-	Reload() error                 // invoca ListOp y decodifica en Items síncronamente; retorna error
+	Items() []Item             // projected list from the last Reload
+	Filter(term string) []Item // local case-insensitive match over Label+Description; "" returns all
+	Reload() error             // synchronously calls ListOp, decodes, projects and indexes
 
-	Selected() string              // el id que Select fijó por última vez ("" si ninguno)
-	Select(id string) model.Model  // marca id como actual y devuelve su registro (via Fill); id=="" limpia y devuelve nil
-
-	CanSave() bool                 // ¿se ofreció SaveOp?
-	Save(payload model.Model) error // envía el payload explícito a SaveOp síncronamente
-
-	CanDelete() bool               // ¿se ofreció DeleteOp?
-	Delete(id string) error        // envía el registro completo de id (via Fill) a DeleteOp síncronamente
+	Selected() string             // currently selected id ("" if none)
+	Select(id string) model.Model // marks id and returns its record from the internal index; unknown id → nil, selection unchanged
+	Deselect()                    // clears the selection
 }
 
-// Option representa una opción funcional de configuración opcional para el presentador.
-type Option func(*presenter)
+// Saver represents the capability to save a record.
+// The renderer discovers it by type assertion at the seam.
+type Saver interface {
+	Save(payload model.Model) error // synchronously ships the explicit payload to SaveOp
+}
 
-// WithTitle asigna un título a la vista.
+// Deleter represents the capability to delete a record.
+// The renderer discovers it by type assertion at the seam.
+type Deleter interface {
+	Delete(id string) error // ships the indexed record of id to DeleteOp; unknown id → error
+}
+
+type config struct {
+	title             string
+	searchPlaceholder string
+	saveOp            string
+	deleteOp          string
+	args              func() model.Encodable
+}
+
+// Option is a functional configuration option for New.
+type Option func(*config)
+
+// WithTitle sets the title of the view.
 func WithTitle(title string) Option {
-	return func(p *presenter) {
-		p.title = title
+	return func(c *config) {
+		c.title = title
 	}
 }
 
-// WithSearchPlaceholder asigna un texto de ayuda para la barra de búsqueda.
+// WithSearchPlaceholder sets the search placeholder of the view.
 func WithSearchPlaceholder(placeholder string) Option {
-	return func(p *presenter) {
-		p.searchPlaceholder = placeholder
+	return func(c *config) {
+		c.searchPlaceholder = placeholder
 	}
 }
 
-// WithSaveOp asigna la operación de guardado (SaveOp).
+// WithSaveOp sets the save operation.
 func WithSaveOp(op string) Option {
-	return func(p *presenter) {
-		p.saveOp = op
+	return func(c *config) {
+		c.saveOp = op
 	}
 }
 
-// WithDeleteOp asigna la operación de eliminación (DeleteOp).
+// WithDeleteOp sets the delete operation.
 func WithDeleteOp(op string) Option {
-	return func(p *presenter) {
-		p.deleteOp = op
+	return func(c *config) {
+		c.deleteOp = op
 	}
 }
 
-// WithArgs inyecta una función para obtener los argumentos de la ListOp.
+// WithArgs sets the function to retrieve arguments for the list operation.
 func WithArgs(args func() model.Encodable) Option {
-	return func(p *presenter) {
-		p.args = args
+	return func(c *config) {
+		c.args = args
 	}
 }
 
-// WithFill inyecta una función para mapear un id a su modelo completo (típicamente de la caché).
-func WithFill(fill func(id string) model.Model) Option {
-	return func(p *presenter) {
-		p.fill = fill
-	}
-}
-
-// New construye el Presenter a partir de sus componentes requeridos invariantes
-// en tiempo de compilación, más opciones funcionales adicionales.
+// New builds the presenter. Mandatory collaborators are positional;
+// a nil/empty mandatory value panics at construction — a loud development diagnostic.
 func New(
 	caller router.Caller,
 	record model.Model,
 	listOp string,
-	newList func() model.FielderSlice,
-	project func(list model.FielderSlice) []Item,
+	newList func() model.ModelSlice,
 	opts ...Option,
 ) Presenter {
 	if caller == nil {
@@ -102,21 +114,33 @@ func New(
 	if newList == nil {
 		panic("view: New: newList is required")
 	}
-	if project == nil {
-		panic("view: New: project is required")
-	}
 
-	p := &presenter{
-		caller:  caller,
-		record:  record,
-		listOp:  listOp,
-		newList: newList,
-		project: project,
-	}
-
+	cfg := &config{}
 	for _, opt := range opts {
-		opt(p)
+		opt(cfg)
 	}
 
-	return p
+	c := &core{
+		caller:            caller,
+		record:            record,
+		listOp:            listOp,
+		newList:           newList,
+		title:             cfg.title,
+		searchPlaceholder: cfg.searchPlaceholder,
+		args:              cfg.args,
+		saveOp:            cfg.saveOp,
+		deleteOp:          cfg.deleteOp,
+		index:             make(map[string]model.Model),
+	}
+
+	switch {
+	case cfg.saveOp != "" && cfg.deleteOp != "":
+		return &crud{core: c} // Presenter + Saver + Deleter
+	case cfg.saveOp != "":
+		return &saveable{core: c} // Presenter + Saver
+	case cfg.deleteOp != "":
+		return &deletable{core: c} // Presenter + Deleter
+	default:
+		return c // solo Presenter
+	}
 }

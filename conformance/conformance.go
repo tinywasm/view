@@ -43,35 +43,34 @@ func (c *FakeCaller) Dispatch(op string, args model.Encodable) {
 
 var _ router.Caller = (*FakeCaller)(nil)
 
-// Factory construye el renderer bajo prueba alrededor del presenter y devuelve un Driver que simula la
-// interacción del usuario con él. Es el seam específico de tecnología (como ServeFunc en router).
+// Factory builds the renderer under test around the presenter and returns a Driver.
 type Factory struct {
 	New func(t *testing.T, p view.Presenter) Driver
 }
 
-// Driver simula los eventos de UI sobre el renderer, sin que la suite conozca su tecnología.
+// Driver simulates user UI interaction over the renderer.
 type Driver struct {
-	Mount    func()                    // provoca el init: el renderer carga la lista
-	Labels   func() []string           // lo que la lista muestra ahora
-	Select   func(id string)           // simula seleccionar la fila con ese id
-	SetField func(name, value string)  // fija un campo del form
-	Save     func()                    // simula la acción guardar
-	Delete   func()                    // simula la acción eliminar
+	Mount    func()                   // triggers initialization: renderer loads list
+	Labels   func() []string          // what the list shows right now
+	Select   func(id string)          // simulates picking a row with that id
+	SetField func(name, value string) // sets a form field
+	Save     func()                   // simulates the save action
+	Delete   func()                   // simulates the delete action
 }
 
-// MockRecord es un modelo de simulación de un registro para el arnés de conformidad.
+// MockRecord is a simulation record for conformance suite.
 type MockRecord struct {
 	ID   string
 	Name string
 }
 
-// ModelName implementa model.ModuleNaming.
+// ModelName implements model.ModuleNaming.
 func (m *MockRecord) ModelName() string { return "MockRecord" }
 
-// IsNil implementa model.Model.
+// IsNil implements model.Model.
 func (m *MockRecord) IsNil() bool { return m == nil }
 
-// Schema implementa model.Fielder.
+// Schema implements model.Fielder.
 func (m *MockRecord) Schema() []model.Field {
 	return []model.Field{
 		{Name: "id", Type: model.Text()},
@@ -79,18 +78,18 @@ func (m *MockRecord) Schema() []model.Field {
 	}
 }
 
-// Pointers implementa model.Fielder.
+// Pointers implements model.Fielder.
 func (m *MockRecord) Pointers() []any {
 	return []any{&m.ID, &m.Name}
 }
 
-// EncodeFields implementa model.Encodable.
+// EncodeFields implements model.Encodable.
 func (m *MockRecord) EncodeFields(w model.FieldWriter) {
 	w.String("id", m.ID)
 	w.String("name", m.Name)
 }
 
-// DecodeFields implementa model.Decodable.
+// DecodeFields implements model.Decodable.
 func (m *MockRecord) DecodeFields(r model.FieldReader) {
 	if val, ok := r.String("id"); ok {
 		m.ID = val
@@ -100,39 +99,48 @@ func (m *MockRecord) DecodeFields(r model.FieldReader) {
 	}
 }
 
-// MockList es un tipo de lista que contiene registros de simulación.
+// Item implements view.Itemizer.
+func (m *MockRecord) Item() view.Item {
+	return view.Item{
+		ID:          m.ID,
+		Label:       m.Name,
+		Description: "Desc of " + m.Name,
+	}
+}
+
+// MockList is a list holding simulation records.
 type MockList struct {
 	items []*MockRecord
 }
 
-// IsNil implementa model.Model.
+// IsNil implements model.Model.
 func (m *MockList) IsNil() bool { return m == nil }
 
-// DecodeFields implementa model.Decodable.
+// DecodeFields implements model.Decodable.
 func (m *MockList) DecodeFields(r model.FieldReader) {}
 
-// Schema implementa model.Fielder.
+// Schema implements model.Fielder.
 func (m *MockList) Schema() []model.Field { return nil }
 
-// Pointers implementa model.Fielder.
+// Pointers implements model.Fielder.
 func (m *MockList) Pointers() []any { return nil }
 
-// Len implementa model.FielderSlice.
+// Len implements model.FielderSlice.
 func (m *MockList) Len() int { return len(m.items) }
 
-// At implementa model.FielderSlice.
+// At implements model.FielderSlice.
 func (m *MockList) At(i int) model.Fielder {
 	return m.items[i]
 }
 
-// Append implementa model.FielderSlice.
+// Append implements model.FielderSlice.
 func (m *MockList) Append() model.Fielder {
 	it := &MockRecord{}
 	m.items = append(m.items, it)
 	return it
 }
 
-// Run ejecuta el conjunto completo de cláusulas de conformidad del renderer.
+// Run executes the full set of conformance clauses.
 func Run(t *testing.T, f Factory) {
 	t.Run("mount_triggers_list_load", func(t *testing.T) {
 		caller := &FakeCaller{}
@@ -141,8 +149,7 @@ func Run(t *testing.T, f Factory) {
 			caller,
 			record,
 			"test_list_op",
-			func() model.FielderSlice { return &MockList{} },
-			func(list model.FielderSlice) []view.Item { return nil },
+			func() model.ModelSlice { return &MockList{} },
 		)
 
 		driver := f.New(t, p)
@@ -175,16 +182,7 @@ func Run(t *testing.T, f Factory) {
 			caller,
 			record,
 			"test_list_op",
-			func() model.FielderSlice { return &MockList{} },
-			func(list model.FielderSlice) []view.Item {
-				l := list.(*MockList)
-				items := make([]view.Item, l.Len())
-				for i := 0; i < l.Len(); i++ {
-					mr := l.At(i).(*MockRecord)
-					items[i] = view.Item{ID: mr.ID, Label: mr.Name}
-				}
-				return items
-			},
+			func() model.ModelSlice { return &MockList{} },
 		)
 
 		driver := f.New(t, p)
@@ -197,32 +195,25 @@ func Run(t *testing.T, f Factory) {
 	})
 
 	t.Run("select_fills_form", func(t *testing.T) {
-		caller := &FakeCaller{}
-		record := &MockRecord{}
-		cache := map[string]*MockRecord{
-			"1": {ID: "1", Name: "Alice"},
-			"2": {ID: "2", Name: "Bob"},
+		caller := &FakeCaller{
+			Reply: func(op string, into model.Decodable) {
+				if op == "test_list_op" {
+					l := into.(*MockList)
+					a := l.Append().(*MockRecord)
+					a.ID, a.Name = "1", "Alice"
+					b := l.Append().(*MockRecord)
+					b.ID, b.Name = "2", "Bob"
+				}
+			},
 		}
-
+		record := &MockRecord{}
 		p := view.New(
 			caller,
 			record,
 			"test_list_op",
-			func() model.FielderSlice { return &MockList{} },
-			func(list model.FielderSlice) []view.Item {
-				return []view.Item{
-					{ID: "1", Label: "Alice"},
-					{ID: "2", Label: "Bob"},
-				}
-			},
+			func() model.ModelSlice { return &MockList{} },
 			view.WithSaveOp("test_save_op"),
 			view.WithDeleteOp("test_delete_op"),
-			view.WithFill(func(id string) model.Model {
-				if id == "" {
-					return nil
-				}
-				return cache[id]
-			}),
 		)
 
 		driver := f.New(t, p)
@@ -253,8 +244,7 @@ func Run(t *testing.T, f Factory) {
 			caller,
 			record,
 			"test_list_op",
-			func() model.FielderSlice { return &MockList{} },
-			func(list model.FielderSlice) []view.Item { return nil },
+			func() model.ModelSlice { return &MockList{} },
 			view.WithSaveOp("test_save_op"),
 		)
 
@@ -281,31 +271,24 @@ func Run(t *testing.T, f Factory) {
 	})
 
 	t.Run("delete_ships_selected_record", func(t *testing.T) {
-		caller := &FakeCaller{}
-		record := &MockRecord{}
-		cache := map[string]*MockRecord{
-			"1": {ID: "1", Name: "Alice"},
-			"2": {ID: "2", Name: "Bob"},
+		caller := &FakeCaller{
+			Reply: func(op string, into model.Decodable) {
+				if op == "test_list_op" {
+					l := into.(*MockList)
+					a := l.Append().(*MockRecord)
+					a.ID, a.Name = "1", "Alice"
+					b := l.Append().(*MockRecord)
+					b.ID, b.Name = "2", "Bob"
+				}
+			},
 		}
-
+		record := &MockRecord{}
 		p := view.New(
 			caller,
 			record,
 			"test_list_op",
-			func() model.FielderSlice { return &MockList{} },
-			func(list model.FielderSlice) []view.Item {
-				return []view.Item{
-					{ID: "1", Label: "Alice"},
-					{ID: "2", Label: "Bob"},
-				}
-			},
+			func() model.ModelSlice { return &MockList{} },
 			view.WithDeleteOp("test_delete_op"),
-			view.WithFill(func(id string) model.Model {
-				if id == "" {
-					return nil
-				}
-				return cache[id]
-			}),
 		)
 
 		driver := f.New(t, p)
@@ -336,19 +319,159 @@ func Run(t *testing.T, f Factory) {
 			caller,
 			record,
 			"test_list_op",
-			func() model.FielderSlice { return &MockList{} },
-			func(list model.FielderSlice) []view.Item { return nil },
-			// SaveOp left empty
+			func() model.ModelSlice { return &MockList{} },
+		)
+
+		if _, ok := p.(view.Saver); ok {
+			t.Errorf("expected presenter to not implement view.Saver when WithSaveOp is empty")
+		}
+	})
+
+	t.Run("deselect_clears_selection", func(t *testing.T) {
+		caller := &FakeCaller{
+			Reply: func(op string, into model.Decodable) {
+				if op == "test_list_op" {
+					l := into.(*MockList)
+					a := l.Append().(*MockRecord)
+					a.ID, a.Name = "1", "Alice"
+				}
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.ModelSlice { return &MockList{} },
 		)
 
 		driver := f.New(t, p)
 		driver.Mount()
-		driver.Save()
+		driver.Select("1")
+		if p.Selected() != "1" {
+			t.Errorf("expected selection to be '1', got %q", p.Selected())
+		}
+		p.Deselect()
+		if p.Selected() != "" {
+			t.Errorf("expected selection to be cleared, got %q", p.Selected())
+		}
+	})
+
+	t.Run("select_unknown_id_returns_nil", func(t *testing.T) {
+		caller := &FakeCaller{
+			Reply: func(op string, into model.Decodable) {
+				if op == "test_list_op" {
+					l := into.(*MockList)
+					a := l.Append().(*MockRecord)
+					a.ID, a.Name = "1", "Alice"
+				}
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.ModelSlice { return &MockList{} },
+		)
+
+		driver := f.New(t, p)
+		driver.Mount()
+		driver.Select("1")
+		if p.Selected() != "1" {
+			t.Errorf("expected selection to be '1', got %q", p.Selected())
+		}
+		res := p.Select("unknown")
+		if res != nil {
+			t.Errorf("expected Select(unknown) to return nil, got %v", res)
+		}
+		if p.Selected() != "1" {
+			t.Errorf("expected selection to remain '1', got %q", p.Selected())
+		}
+	})
+
+	t.Run("filter_matches_label_and_description", func(t *testing.T) {
+		caller := &FakeCaller{
+			Reply: func(op string, into model.Decodable) {
+				if op == "test_list_op" {
+					l := into.(*MockList)
+					a := l.Append().(*MockRecord)
+					a.ID, a.Name = "1", "Alice" // description will be "Desc of Alice"
+					b := l.Append().(*MockRecord)
+					b.ID, b.Name = "2", "Bob"   // description will be "Desc of Bob"
+				}
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.ModelSlice { return &MockList{} },
+		)
+
+		driver := f.New(t, p)
+		driver.Mount()
+
+		// Case-insensitive match on label:
+		res := p.Filter("alice")
+		if len(res) != 1 || res[0].ID != "1" {
+			t.Errorf("expected 1 result matching 'alice', got %v", res)
+		}
+
+		// Case-insensitive match on description:
+		res = p.Filter("bOb")
+		if len(res) != 1 || res[0].ID != "2" {
+			t.Errorf("expected 1 result matching 'bOb', got %v", res)
+		}
+
+		// Empty term returns all:
+		res = p.Filter("")
+		if len(res) != 2 {
+			t.Errorf("expected all 2 results on empty term, got %v", res)
+		}
+	})
+
+	t.Run("delete_unknown_id_errors", func(t *testing.T) {
+		caller := &FakeCaller{}
+		record := &MockRecord{}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.ModelSlice { return &MockList{} },
+			view.WithDeleteOp("test_delete_op"),
+		)
+
+		d, ok := p.(view.Deleter)
+		if !ok {
+			t.Fatalf("expected presenter to implement view.Deleter")
+		}
+
+		err := d.Delete("unknown")
+		if err == nil {
+			t.Errorf("expected error deleting unknown id, got nil")
+		}
 
 		for _, call := range caller.Calls {
-			if call.Op == "" || call.Op == "test_save_op" {
-				t.Errorf("did not expect any save calls, but got call to %q", call.Op)
+			if call.Op == "test_delete_op" {
+				t.Errorf("unexpected delete op call on unknown ID")
 			}
+		}
+	})
+
+	t.Run("no_delete_capability_when_deleteop_empty", func(t *testing.T) {
+		caller := &FakeCaller{}
+		record := &MockRecord{}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.ModelSlice { return &MockList{} },
+		)
+
+		if _, ok := p.(view.Deleter); ok {
+			t.Errorf("expected presenter to not implement view.Deleter when WithDeleteOp is empty")
 		}
 	})
 }
