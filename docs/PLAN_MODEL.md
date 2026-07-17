@@ -101,6 +101,3 @@ var _ model.ModelSlice = (*TestItemList)(nil)
 
 1. `go build ./... && go vet ./... && go test ./...`
 2. Commit: `feat: name ModelSlice — the list-side boundary contract (FielderSlice + Decodable)`
-3. Tag de versión nueva (minor: `v0.0.15` → `v0.1.0` o `v0.0.16` según convención del repo).
-4. Avisar/actualizar `tinywasm/view`: `go get github.com/tinywasm/model@<tag>` y
-   ejecutar su `docs/PLAN.md`.
