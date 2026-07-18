@@ -9,10 +9,6 @@ no prior context can create or edit a visual component correctly guided only by 
 typed signatures below. If something here requires reading the implementation, that is
 a defect — report it.
 
-> Alignment note: this document describes the target API defined by the construction
-> harness. `docs/PLAN.md` tracks the code's convergence to it (gated on
-> `docs/PLAN_MODEL.md` being executed in `tinywasm/model` first).
-
 ## I want to… → use
 
 | I want to… | Use |
@@ -192,8 +188,10 @@ func (r *Renderer) OnSearchTyped(term string) {
   pattern). Logging and continuing would return a half-built presenter that crashes far
   from the cause — a deferred silent failure, which the harness forbids.
 - Misuse that cannot be made a compile error is a loud error, never silence:
-  `Delete` of an unknown id errors (nothing is sent), a row type that does not
-  implement `Itemizer` makes `Reload` fail naming the offending type.
+  `Delete` of an unknown id errors (nothing is sent); a row that does not
+  implement `Itemizer`/`model.Model` makes `Reload` fail naming the offending
+  record (via `model.ModuleNaming.ModelName()` when the row provides it —
+  `tinywasm/fmt` has no reflect-based type-name formatter by design).
 
 ## Design Goals
 
@@ -227,6 +225,3 @@ To ensure 100% compatibility with WebAssembly (WASM) and TinyGo targets, standar
   only if it passes every clause (list load on mount, label rendering via `Itemizer`,
   select/deselect, save/delete capability assertions, filter semantics, loud errors on
   unknown ids).
-- **`docs/PLAN.md`** — the harness-alignment refactor plan for this library.
-- **`docs/PLAN_MODEL.md`** — the `model.ModelSlice` prerequisite, to be executed in
-  `tinywasm/model`.

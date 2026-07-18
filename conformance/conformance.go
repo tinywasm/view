@@ -3,6 +3,7 @@ package conformance
 import (
 	"testing"
 
+	"github.com/tinywasm/form/input"
 	"github.com/tinywasm/model"
 	"github.com/tinywasm/router"
 	"github.com/tinywasm/view"
@@ -73,8 +74,8 @@ func (m *MockRecord) IsNil() bool { return m == nil }
 // Schema implements model.Fielder.
 func (m *MockRecord) Schema() []model.Field {
 	return []model.Field{
-		{Name: "id", Type: model.Text()},
-		{Name: "name", Type: model.Text()},
+		{Name: "id", Type: input.Text()},
+		{Name: "name", Type: input.Text()},
 	}
 }
 

@@ -66,11 +66,11 @@ func (p *core) Reload() error {
 		row := list.At(i)
 		iz, ok := row.(Itemizer)
 		if !ok {
-			return fmt.Err("view: Reload: row type does not implement view.Itemizer")
+			return fmt.Err("view: Reload: row type", rowName(row), "does not implement view.Itemizer")
 		}
 		m, ok := row.(model.Model)
 		if !ok {
-			return fmt.Err("view: Reload: row type does not implement model.Model")
+			return fmt.Err("view: Reload: row type", rowName(row), "does not implement model.Model")
 		}
 		it := iz.Item()
 		p.items = append(p.items, it)
@@ -78,6 +78,18 @@ func (p *core) Reload() error {
 	}
 
 	return nil
+}
+
+// rowName names the row that failed an Itemizer/model.Model assertion in Reload,
+// so the error points at the offending record. tinywasm/fmt has no reflect-based
+// type-name formatter (WASM-size discipline), so this uses model.ModuleNaming —
+// the stable name ormc already generates for every domain record — when the row
+// provides it.
+func rowName(row model.Fielder) string {
+	if mn, ok := row.(model.ModuleNaming); ok {
+		return mn.ModelName()
+	}
+	return "<unnamed type>"
 }
 
 func (p *core) Select(id string) model.Model {
@@ -93,50 +105,15 @@ func (p *core) Deselect() {
 	p.selected = ""
 }
 
-func toLowerASCII(s string) string {
-	b := []byte(s)
-	for i := 0; i < len(b); i++ {
-		if b[i] >= 'A' && b[i] <= 'Z' {
-			b[i] += 32
-		}
-	}
-	return string(b)
-}
-
-func containsSubstring(s, substr string) bool {
-	if len(substr) == 0 {
-		return true
-	}
-	if len(s) < len(substr) {
-		return false
-	}
-	for i := 0; i <= len(s)-len(substr); i++ {
-		match := true
-		for j := 0; j < len(substr); j++ {
-			if s[i+j] != substr[j] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
-}
-
 func (p *core) Filter(term string) []Item {
 	if term == "" {
 		res := make([]Item, len(p.items))
 		copy(res, p.items)
 		return res
 	}
-	termLower := toLowerASCII(term)
 	var filtered []Item
 	for _, it := range p.items {
-		labelLower := toLowerASCII(it.Label)
-		descLower := toLowerASCII(it.Description)
-		if containsSubstring(labelLower, termLower) || containsSubstring(descLower, termLower) {
+		if fmt.Matches(it.Label, term) || fmt.Matches(it.Description, term) {
 			filtered = append(filtered, it)
 		}
 	}
