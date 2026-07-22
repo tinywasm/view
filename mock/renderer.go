@@ -98,6 +98,13 @@ func (r *Renderer) Edit(id string) {
 // FocusedFieldID returns the field name New()/Edit() last targeted.
 func (r *Renderer) FocusedFieldID() string { return r.focused }
 
+// Cancel simulates the "↺" (undo) action: abandons the draft/selection and
+// clears the tracked focus — nothing must be left focused after a cancel.
+func (r *Renderer) Cancel() {
+	r.Deselect()
+	r.focused = ""
+}
+
 // Filter filters the presenter items and returns their labels.
 func (r *Renderer) Filter(term string) []string {
 	items := r.p.Filter(term)

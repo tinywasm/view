@@ -62,10 +62,13 @@ type Driver struct {
 	New func()
 	// Edit simulates picking ⋮ → Editar for the given id (select + unlock).
 	Edit func(id string)
+	// Cancel simulates the "↺" (undo) action — abandoning a new-record draft
+	// or a selected-but-unedited row, back to "+".
+	Cancel func()
 	// FocusedFieldID returns the id of the field the renderer most recently
-	// asked to focus (empty if none yet). Real focus movement is a WASM-only
-	// DOM side effect; this exposes the INTENT so the clause below can assert
-	// it without a live DOM/browser.
+	// asked to focus (empty if none). Real focus movement is a WASM-only
+	// DOM side effect; this exposes the INTENT so the clauses below can
+	// assert it without a live DOM/browser.
 	FocusedFieldID func() string
 }
 
@@ -517,6 +520,34 @@ func Run(t *testing.T, f Factory) {
 
 		if got := driver.FocusedFieldID(); got == "" {
 			t.Error("expected Editar to focus the form's first field, got no focus request")
+		}
+	})
+
+	// Cancelling a new-record draft must leave NOTHING focused — a stray
+	// focused field after "↺" is a leftover from the draft that should have
+	// been fully abandoned. Standard behavior, not crudview-specific.
+	t.Run("cancel_clears_focus", func(t *testing.T) {
+		caller := &FakeCaller{}
+		record := &MockRecord{}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.ModelSlice { return &MockList{} },
+		)
+
+		driver := f.New(t, p)
+		driver.Mount()
+		driver.New()
+
+		if got := driver.FocusedFieldID(); got == "" {
+			t.Fatal("sanity check failed: New() did not focus a field")
+		}
+
+		driver.Cancel()
+
+		if got := driver.FocusedFieldID(); got != "" {
+			t.Errorf("expected Cancel to clear the focused field, got %q", got)
 		}
 	})
 

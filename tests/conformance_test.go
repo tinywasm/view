@@ -21,6 +21,7 @@ func TestConformance(t *testing.T) {
 				Delete:         r.Delete,
 				New:            r.New,
 				Edit:           r.Edit,
+				Cancel:         r.Cancel,
 				FocusedFieldID: r.FocusedFieldID,
 			}
 		},
