@@ -13,12 +13,15 @@ func TestConformance(t *testing.T) {
 		New: func(t *testing.T, p view.Presenter) conformance.Driver {
 			r := mock.New(p)
 			return conformance.Driver{
-				Mount:    r.Mount,
-				Labels:   r.Labels,
-				Select:   r.Select,
-				SetField: r.SetField,
-				Save:     r.Save,
-				Delete:   r.Delete,
+				Mount:          r.Mount,
+				Labels:         r.Labels,
+				Select:         r.Select,
+				SetField:       r.SetField,
+				Save:           r.Save,
+				Delete:         r.Delete,
+				New:            r.New,
+				Edit:           r.Edit,
+				FocusedFieldID: r.FocusedFieldID,
 			}
 		},
 	})

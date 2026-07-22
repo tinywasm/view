@@ -8,8 +8,9 @@ import (
 
 // Renderer is a headless reference renderer for browser-less simulation and tests.
 type Renderer struct {
-	p    view.Presenter
-	form map[string]string
+	p       view.Presenter
+	form    map[string]string
+	focused string // field name New()/Edit() last targeted (see FocusedFieldID)
 }
 
 // New creates a reference renderer instance for a given Presenter.
@@ -70,6 +71,32 @@ func (r *Renderer) Deselect() {
 	r.p.Deselect()
 	r.form = make(map[string]string)
 }
+
+// firstFieldName returns the name of the record's first schema field, or ""
+// if it has none — the "first field" every renderer focuses on New/Edit.
+func (r *Renderer) firstFieldName() string {
+	schema := r.p.Record().Schema()
+	if len(schema) == 0 {
+		return ""
+	}
+	return schema[0].Name
+}
+
+// New simulates the "+" (create new) action: clears the selection/form and
+// focuses the first field, same as a real renderer would.
+func (r *Renderer) New() {
+	r.Deselect()
+	r.focused = r.firstFieldName()
+}
+
+// Edit simulates ⋮ → Editar: selects id then focuses the first field.
+func (r *Renderer) Edit(id string) {
+	r.Select(id)
+	r.focused = r.firstFieldName()
+}
+
+// FocusedFieldID returns the field name New()/Edit() last targeted.
+func (r *Renderer) FocusedFieldID() string { return r.focused }
 
 // Filter filters the presenter items and returns their labels.
 func (r *Renderer) Filter(term string) []string {

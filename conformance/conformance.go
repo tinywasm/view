@@ -57,6 +57,16 @@ type Driver struct {
 	SetField func(name, value string) // sets a form field
 	Save     func()                   // simulates the save action
 	Delete   func()                   // simulates the delete action
+
+	// New simulates the "+" (create new) action.
+	New func()
+	// Edit simulates picking ⋮ → Editar for the given id (select + unlock).
+	Edit func(id string)
+	// FocusedFieldID returns the id of the field the renderer most recently
+	// asked to focus (empty if none yet). Real focus movement is a WASM-only
+	// DOM side effect; this exposes the INTENT so the clause below can assert
+	// it without a live DOM/browser.
+	FocusedFieldID func() string
 }
 
 // MockRecord is a simulation record for conformance suite.
@@ -399,7 +409,7 @@ func Run(t *testing.T, f Factory) {
 					a := l.Append().(*MockRecord)
 					a.ID, a.Name = "1", "Alice" // description will be "Desc of Alice"
 					b := l.Append().(*MockRecord)
-					b.ID, b.Name = "2", "Bob"   // description will be "Desc of Bob"
+					b.ID, b.Name = "2", "Bob" // description will be "Desc of Bob"
 				}
 			},
 		}
@@ -458,6 +468,55 @@ func Run(t *testing.T, f Factory) {
 			if call.Op == "test_delete_op" {
 				t.Errorf("unexpected delete op call on unknown ID")
 			}
+		}
+	})
+
+	// "+" and ⋮ Editar must move focus to the form's first field so the user
+	// can start typing immediately — a standard behavior every renderer must
+	// implement identically, not a crudview-specific nicety.
+	t.Run("new_focuses_first_field", func(t *testing.T) {
+		caller := &FakeCaller{}
+		record := &MockRecord{}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.ModelSlice { return &MockList{} },
+		)
+
+		driver := f.New(t, p)
+		driver.Mount()
+		driver.New()
+
+		if got := driver.FocusedFieldID(); got == "" {
+			t.Error("expected the \"+\" action to focus the form's first field, got no focus request")
+		}
+	})
+
+	t.Run("edit_focuses_first_field", func(t *testing.T) {
+		caller := &FakeCaller{
+			Reply: func(op string, into model.Decodable) {
+				if op == "test_list_op" {
+					l := into.(*MockList)
+					a := l.Append().(*MockRecord)
+					a.ID, a.Name = "1", "Alice"
+				}
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.ModelSlice { return &MockList{} },
+		)
+
+		driver := f.New(t, p)
+		driver.Mount()
+		driver.Edit("1")
+
+		if got := driver.FocusedFieldID(); got == "" {
+			t.Error("expected Editar to focus the form's first field, got no focus request")
 		}
 	})
 
