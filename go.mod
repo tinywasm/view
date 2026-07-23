@@ -4,7 +4,7 @@ go 1.25.2
 
 require (
 	github.com/tinywasm/fmt v0.25.5
-	github.com/tinywasm/form v0.2.23
+	github.com/tinywasm/form v0.2.24
 	github.com/tinywasm/model v0.1.0
 	github.com/tinywasm/router v0.1.13
 )
