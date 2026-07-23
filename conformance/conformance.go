@@ -233,6 +233,13 @@ func Run(t *testing.T, f Factory) {
 		driver := f.New(t, p)
 		driver.Mount()
 		driver.Select("2")
+		// Editing "name" (not just Select+Save) is what makes this a genuine
+		// save: an unedited Save must NOT ship (see unchanged_save_does_not_ship
+		// below). The unchanged "id" field surviving into the payload is what
+		// actually proves Select loaded record 2's real values into the form —
+		// if Select had left it blank/zero, this field would ship empty instead
+		// of "2".
+		driver.SetField("name", "Bob Updated")
 		driver.Save()
 
 		var savedRecord *MockRecord
@@ -246,8 +253,8 @@ func Run(t *testing.T, f Factory) {
 
 		if savedRecord == nil {
 			t.Errorf("expected a save call with MockRecord payload")
-		} else if savedRecord.ID != "2" || savedRecord.Name != "Bob" {
-			t.Errorf("expected saved record to be ID '2' Name 'Bob', got ID %q Name %q", savedRecord.ID, savedRecord.Name)
+		} else if savedRecord.ID != "2" || savedRecord.Name != "Bob Updated" {
+			t.Errorf("expected saved record to be ID '2' (loaded by Select) Name 'Bob Updated' (edited), got ID %q Name %q", savedRecord.ID, savedRecord.Name)
 		}
 	})
 
@@ -281,6 +288,78 @@ func Run(t *testing.T, f Factory) {
 		}
 		if savedRecord.Name != "X" {
 			t.Errorf("expected saved record to have Name 'X', got %q", savedRecord.Name)
+		}
+	})
+
+	// unchanged_save_does_not_ship / revert_edit_is_not_dirty are the CRUD
+	// "dirty-check" contract (CRUD_DIRTY_SAVE_MASTER_PLAN.md): any renderer
+	// that claims CRUD conformance must gate persistence on "did something
+	// actually change since the record was loaded", not "was a field
+	// committed" — a blur with no edit is not a save. Every renderer answers
+	// this the same way structurally: tinywasm/form.Form.IsDirty compares
+	// live signals against a baseline snapshotted on load; view/mock.Renderer
+	// compares its form map against a baseline snapshotted on Select/Deselect.
+	t.Run("unchanged_save_does_not_ship", func(t *testing.T) {
+		caller := &FakeCaller{
+			Reply: func(op string, into model.Decodable) {
+				if op == "test_list_op" {
+					l := into.(*MockList)
+					a := l.Append().(*MockRecord)
+					a.ID, a.Name = "1", "Alice"
+				}
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.ModelSlice { return &MockList{} },
+			view.WithSaveOp("test_save_op"),
+		)
+
+		driver := f.New(t, p)
+		driver.Mount()
+		driver.Select("1")
+		driver.Save() // no SetField at all — nothing changed since the load
+
+		for _, call := range caller.Calls {
+			if call.Op == "test_save_op" {
+				t.Fatalf("expected no save call when nothing changed since Select, got one")
+			}
+		}
+	})
+
+	t.Run("revert_edit_is_not_dirty", func(t *testing.T) {
+		caller := &FakeCaller{
+			Reply: func(op string, into model.Decodable) {
+				if op == "test_list_op" {
+					l := into.(*MockList)
+					a := l.Append().(*MockRecord)
+					a.ID, a.Name = "1", "Alice"
+				}
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(
+			caller,
+			record,
+			"test_list_op",
+			func() model.ModelSlice { return &MockList{} },
+			view.WithSaveOp("test_save_op"),
+		)
+
+		driver := f.New(t, p)
+		driver.Mount()
+		driver.Select("1")
+		driver.SetField("name", "Temporary")
+		driver.SetField("name", "Alice") // back to the value Select loaded
+		driver.Save()
+
+		for _, call := range caller.Calls {
+			if call.Op == "test_save_op" {
+				t.Fatalf("expected no save call after editing then reverting to the loaded value, got one")
+			}
 		}
 	})
 

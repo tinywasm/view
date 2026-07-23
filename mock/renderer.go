@@ -8,16 +8,18 @@ import (
 
 // Renderer is a headless reference renderer for browser-less simulation and tests.
 type Renderer struct {
-	p       view.Presenter
-	form    map[string]string
-	focused string // field name New()/Edit() last targeted (see FocusedFieldID)
+	p        view.Presenter
+	form     map[string]string
+	baseline map[string]string // last loaded/reset value per field — see isDirty
+	focused  string            // field name New()/Edit() last targeted (see FocusedFieldID)
 }
 
 // New creates a reference renderer instance for a given Presenter.
 func New(p view.Presenter) *Renderer {
 	return &Renderer{
-		p:    p,
-		form: make(map[string]string),
+		p:        p,
+		form:     make(map[string]string),
+		baseline: make(map[string]string),
 	}
 }
 
@@ -64,12 +66,39 @@ func (r *Renderer) Select(id string) {
 			r.form[f.Name] = val
 		}
 	}
+	r.rebaseline() // a freshly selected/loaded record is pristine — see isDirty
 }
 
 // Deselect clears the selection and form.
 func (r *Renderer) Deselect() {
 	r.p.Deselect()
 	r.form = make(map[string]string)
+	r.rebaseline()
+}
+
+// rebaseline snapshots the baseline to the CURRENT form values — the
+// reference implementation of the "form isn't dirty against what was just
+// loaded/saved" contract, mirroring tinywasm/form's Form.MarkPristine.
+func (r *Renderer) rebaseline() {
+	r.baseline = make(map[string]string, len(r.form))
+	for k, v := range r.form {
+		r.baseline[k] = v
+	}
+}
+
+// isDirty reports whether any field differs from the baseline captured at
+// the last Select/Deselect/Save — the same "did the user actually change
+// anything" question tinywasm/form.Form.IsDirty answers for a real renderer.
+func (r *Renderer) isDirty() bool {
+	if len(r.form) != len(r.baseline) {
+		return true
+	}
+	for k, v := range r.form {
+		if r.baseline[k] != v {
+			return true
+		}
+	}
+	return false
 }
 
 // firstFieldName returns the name of the record's first schema field, or ""
@@ -120,10 +149,16 @@ func (r *Renderer) SetField(name, value string) {
 	r.form[name] = value
 }
 
-// Save synchronizes the headless form values with the Record, and calls Save.
+// Save synchronizes the headless form values with the Record, and calls Save
+// — but only when something actually changed since the last load/save (see
+// isDirty). A commit that touches nothing (e.g. focus moved through a field
+// and back) must never reach the Saver: it isn't a save, it's a no-op.
 func (r *Renderer) Save() {
 	s, ok := r.p.(view.Saver)
 	if !ok {
+		return
+	}
+	if !r.isDirty() {
 		return
 	}
 	rec := r.p.Record()
@@ -155,6 +190,7 @@ func (r *Renderer) Save() {
 		}
 	}
 	_ = s.Save(rec)
+	r.rebaseline() // saved successfully — a later untouched commit isn't dirty again
 }
 
 // Delete deletes the selected record.
