@@ -3,7 +3,7 @@ package conformance
 import (
 	"testing"
 
-	"github.com/tinywasm/form/input"
+	"github.com/tinywasm/input"
 	"github.com/tinywasm/model"
 	"github.com/tinywasm/router"
 	"github.com/tinywasm/view"
