@@ -6,7 +6,7 @@ require (
 	github.com/tinywasm/fmt v0.25.7
 	github.com/tinywasm/input v0.0.2
 	github.com/tinywasm/model v0.1.4
-	github.com/tinywasm/router v0.1.22
+	github.com/tinywasm/router v0.1.27
 )
 
-require github.com/tinywasm/json v0.5.21 // indirect
+require github.com/tinywasm/json v0.5.23 // indirect
