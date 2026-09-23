@@ -76,7 +76,7 @@ owns, then build the view over it:
 
 ```go
 l := view.NewCallerLister(caller,
-	view.Ops{List: "device.list", Save: "device.save", Delete: "device.delete"},
+	view.Ops{Module: "device", List: "list", Save: "save", Delete: "delete"},
 	func() model.ModelSlice { return &DeviceList{} })
 view.New(b, &Device{}, view.WithTitle("Computadores"))
 ```
@@ -152,7 +152,7 @@ view.New(caller, &User{}, OpListUsers, func() model.ModelSlice { return &UserLis
 
 // after
 l := view.NewCallerLister(caller,
-	view.Ops{List: OpListUsers, Save: OpUpsertUser, Delete: OpDeleteUser},
+	view.Ops{Module: "user", List: OpListUsers, Save: OpUpsertUser, Delete: OpDeleteUser},
 	func() model.ModelSlice { return &UserList{} })
 view.New(b, &User{}, view.WithTitle("Usuarios"))
 ```
@@ -228,6 +228,7 @@ type Lister interface {
 // Ops names the remote operations a CallerLister invokes. An empty name means
 // the remote side does not offer that operation.
 type Ops struct {
+	Module string
 	List   string
 	Save   string
 	Update string

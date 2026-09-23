@@ -75,6 +75,7 @@ type Deleter interface {
 }
 
 type Ops struct {
+	Module string
 	List   string
 	Save   string
 	Update string
@@ -205,6 +206,7 @@ through `done`.
 | `New` | `l == nil` | `view: New: lister is required` |
 | `New` | `model.IsNil(record)` | `view: New: record is required` |
 | `NewCallerLister` | `c == nil` | `view: NewCallerLister: caller is required` |
+| `NewCallerLister` | `ops.Module == ""` | `view: NewCallerLister: Ops.Module is required — it must match the server module's ModelName()` |
 | `NewCallerLister` | `ops.List == ""` | `view: NewCallerLister: Ops.List is required` |
 | `NewCallerLister` | `newList == nil` | `view: NewCallerLister: newList is required` |
 
@@ -220,7 +222,10 @@ a wire envelope.
   matching `ops.*` name is non-empty — the same mirroring `view.New` applies,
   so a remote backend's capabilities are honest by construction.
 - `list` builds `newList()`, requires it to be a `model.Decodable`, then calls
-  `c.caller.Call(ops.List, nil, dec, cb)`. Inside `cb` it converts `Len()`/`At(i)`
+  `c.caller.Call(ops.Module + "." + ops.List, nil, dec, cb)`. `save` / `update` /
+  `delete` compose the identical qualified name from `ops.Module` plus the bare
+  op name — no caller ever writes "module.op" as a hand-assembled literal.
+  Inside `cb` it converts `Len()`/`At(i)`
   rows to `[]model.Model` and delivers them via `done`.
 - `save` / `update` / `delete` are a single `c.caller.Call(op, envelope, nil, done)`
   — the `Caller`'s callback already has the `func(error)` shape.
