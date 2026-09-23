@@ -7,7 +7,7 @@ require (
 	webtyp.com/input v0.0.9
 	webtyp.com/mcp v0.2.34
 	webtyp.com/model v0.1.9
-	webtyp.com/router v0.1.41
+	webtyp.com/router v0.1.42
 )
 
 require (
