@@ -160,7 +160,11 @@ func (m *MockRecord) IsNil() bool { return m == nil }
 // Schema implements model.Fielder.
 func (m *MockRecord) Schema() []model.Field {
 	return []model.Field{
-		{Name: "id", Type: input.Text()},
+		// The suite must use the minimal shape of a real model: a hidden
+		// PK (see form.New's ShowField comment). An id without PK renders
+		// visible, loads through the form inputs and hides every hidden-PK
+		// defect (see app-demo PLAN §2bis).
+		{Name: "id", Type: input.Text(), NotNull: true, DB: &model.FieldDB{PK: true}},
 		{Name: "name", Type: input.Text()},
 	}
 }
@@ -286,6 +290,106 @@ func Run(t *testing.T, f Factory) {
 		}
 		if savedRecord.ID != "2" || savedRecord.Name != "Bob Updated" {
 			t.Errorf("expected saved record to be ID '2' (loaded by Select) Name 'Bob Updated' (edited), got ID %q Name %q", savedRecord.ID, savedRecord.Name)
+		}
+	})
+
+	t.Run("new_after_new_gets_distinct_ids", func(t *testing.T) {
+		fb := &FakeLister{}
+		record := &MockRecord{}
+		p := view.New(fb, record)
+
+		driver := f.New(t, p)
+		driver.Mount()
+		driver.New()
+		driver.SetField("name", "A")
+		driver.Save()
+		// Snapshot now: every renderer syncs into one shared Record, so the
+		// second Save below mutates the same pointer the lister stored —
+		// what the first Save SHIPPED is this value, not what the pointer
+		// reads after the second one.
+		if len(fb.SavedRecords) != 1 {
+			t.Fatalf("expected 1 saved record after the first draft, got %d", len(fb.SavedRecords))
+		}
+		firstSaved, ok := fb.SavedRecords[0].(*MockRecord)
+		if !ok {
+			t.Fatalf("expected saved record to be a *MockRecord, got %T", fb.SavedRecords[0])
+		}
+		firstID := firstSaved.ID
+		driver.New()
+		driver.SetField("name", "B")
+		driver.Save()
+
+		if len(fb.SavedRecords) != 2 {
+			t.Fatalf("expected 2 saved records, got %d", len(fb.SavedRecords))
+		}
+		second, ok := fb.SavedRecords[1].(*MockRecord)
+		if !ok {
+			t.Fatalf("expected saved record to be a *MockRecord, got %T", fb.SavedRecords[1])
+		}
+		if firstID == "" || second.ID == "" {
+			t.Errorf("expected both new records to carry a minted id, got %q and %q", firstID, second.ID)
+		}
+		if firstID == second.ID {
+			t.Errorf("expected two New drafts to mint distinct ids, got %q twice", firstID)
+		}
+	})
+
+	t.Run("edit_after_create_keeps_selected_id", func(t *testing.T) {
+		fb := &FakeLister{
+			Rows: []model.Model{
+				&MockRecord{ID: "1", Name: "Alice"},
+				&MockRecord{ID: "2", Name: "Bob"},
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(fb, record)
+
+		driver := f.New(t, p)
+		driver.Mount()
+		driver.New()
+		driver.SetField("name", "C")
+		driver.Save()
+		driver.Select("2")
+		driver.SetField("name", "Bob2")
+		driver.Save()
+
+		if len(fb.SavedRecords) == 0 {
+			t.Fatalf("expected a save call after editing the selected row")
+		}
+		last, ok := fb.SavedRecords[len(fb.SavedRecords)-1].(*MockRecord)
+		if !ok {
+			t.Fatalf("expected saved record to be a *MockRecord, got %T", fb.SavedRecords[len(fb.SavedRecords)-1])
+		}
+		if last.ID != "2" {
+			t.Errorf("expected the edit to keep the selected id '2', got %q", last.ID)
+		}
+	})
+
+	t.Run("first_edit_after_mount_keeps_selected_id", func(t *testing.T) {
+		fb := &FakeLister{
+			Rows: []model.Model{
+				&MockRecord{ID: "1", Name: "Alice"},
+				&MockRecord{ID: "2", Name: "Bob"},
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(fb, record)
+
+		driver := f.New(t, p)
+		driver.Mount()
+		driver.Select("1")
+		driver.SetField("name", "Alice2")
+		driver.Save()
+
+		if len(fb.SavedRecords) == 0 {
+			t.Fatalf("expected a save call after editing the selected row")
+		}
+		savedRecord, ok := fb.SavedRecords[0].(*MockRecord)
+		if !ok {
+			t.Fatalf("expected saved record to be a *MockRecord, got %T", fb.SavedRecords[0])
+		}
+		if savedRecord.ID != "1" {
+			t.Errorf("expected the first edit after mount to keep id '1', got %q", savedRecord.ID)
 		}
 	})
 

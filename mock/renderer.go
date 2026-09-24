@@ -12,6 +12,8 @@ type Renderer struct {
 	form     map[string]string
 	baseline map[string]string // last loaded/reset value per field — see isDirty
 	focused  string            // field name New()/Edit() last targeted (see FocusedFieldID)
+	loadedID string            // id of the record Select loaded ("": a new-record draft) — see Save
+	nextID   int               // minted ids for new-record drafts — see Save
 }
 
 // New creates a reference renderer instance for a given Presenter.
@@ -50,6 +52,7 @@ func (r *Renderer) Labels() []string {
 func (r *Renderer) Select(id string) {
 	m := r.p.Select(id)
 	r.form = make(map[string]string)
+	r.loadedID = "" // unknown until the row below proves otherwise
 	if !model.IsNil(m) {
 		schema := m.Schema()
 		pointers := m.Pointers()
@@ -68,6 +71,7 @@ func (r *Renderer) Select(id string) {
 			}
 			r.form[f.Name] = val
 		}
+		r.loadedID = id // what was loaded defines the identity — see Save
 	}
 	r.rebaseline() // a freshly selected/loaded record is pristine — see isDirty
 }
@@ -76,6 +80,7 @@ func (r *Renderer) Select(id string) {
 func (r *Renderer) Deselect() {
 	r.p.Deselect()
 	r.form = make(map[string]string)
+	r.loadedID = "" // abandoning the draft/selection drops its identity too
 	r.rebaseline()
 }
 
@@ -169,6 +174,9 @@ func (r *Renderer) Save() {
 		schema := rec.Schema()
 		pointers := rec.Pointers()
 		for i, f := range schema {
+			if f.Name == "id" {
+				continue // the hidden PK travels via loadedID below, never the form map
+			}
 			if val, ok := r.form[f.Name]; ok {
 				ptr := pointers[i]
 				switch p := ptr.(type) {
@@ -189,6 +197,24 @@ func (r *Renderer) Save() {
 						*p = false
 					}
 				}
+			}
+		}
+		// The hidden PK is renderer state: Select remembered it, Deselect
+		// cleared it. The shared Record's own id is never read — trusting
+		// it wrote edits onto whichever record was synced last. A draft
+		// with no loaded id mints one and keeps it across retries until
+		// the next Deselect.
+		if r.loadedID == "" {
+			r.nextID++
+			r.loadedID = fmt.Sprintf("mock-%d", r.nextID)
+			r.form["id"] = r.loadedID
+		}
+		for i, f := range schema {
+			if f.Name == "id" {
+				if p, ok := pointers[i].(*string); ok {
+					*p = r.loadedID
+				}
+				break
 			}
 		}
 	}
