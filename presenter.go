@@ -2,6 +2,7 @@ package view
 
 import (
 	"webtyp.com/fmt"
+	"webtyp.com/lang"
 	"webtyp.com/model"
 )
 
@@ -17,7 +18,7 @@ type core struct {
 	lister            Lister
 	record            model.Model
 	title             string
-	searchPlaceholder string
+	searchPlaceholder lang.Text
 
 	items    []Item
 	selected string
@@ -28,7 +29,7 @@ func (p *core) Title() string {
 	return p.title
 }
 
-func (p *core) SearchPlaceholder() string {
+func (p *core) SearchPlaceholder() lang.Text {
 	return p.searchPlaceholder
 }
 

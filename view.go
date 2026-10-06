@@ -1,6 +1,7 @@
 package view
 
 import (
+	"webtyp.com/lang"
 	"webtyp.com/model"
 )
 
@@ -33,7 +34,7 @@ type Itemizer interface {
 // Always present. Save/Delete are separate capabilities (see Saver/Deleter).
 type Presenter interface {
 	Title() string
-	SearchPlaceholder() string
+	SearchPlaceholder() lang.Text
 	Record() model.Model
 
 	Items() []Item             // projected list from the last Reload
@@ -105,7 +106,7 @@ type Deleter interface {
 
 type config struct {
 	title             string
-	searchPlaceholder string
+	searchPlaceholder lang.Text
 }
 
 // Option is a functional configuration option for New.
@@ -119,7 +120,7 @@ func WithTitle(title string) Option {
 }
 
 // WithSearchPlaceholder sets the search placeholder of the view.
-func WithSearchPlaceholder(placeholder string) Option {
+func WithSearchPlaceholder(placeholder lang.Text) Option {
 	return func(c *config) {
 		c.searchPlaceholder = placeholder
 	}
