@@ -6,7 +6,7 @@ require (
 	webtyp.com/fmt v1.0.0
 	webtyp.com/input v0.0.9
 	webtyp.com/mcp v0.2.40
-	webtyp.com/model v0.1.9
+	webtyp.com/model v0.2.2
 	webtyp.com/router v0.3.2
 )
 
