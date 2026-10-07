@@ -2,8 +2,9 @@
 PLAN: "feat: actions — named commands on the whole list (Action, Actioner, ActionRunner)"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 4771191073984352337
+PR: https://github.com/webtyp/view/pull/5
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
@@ -144,3 +145,6 @@ Add `var _ Actioner = (*core)(nil)` and, in the existing compile-time checks blo
 | 4 | `conformance/conformance.go`, SPECS §8 | 5 clauses |
 | 5 | `tests/action_test.go` | green |
 | 6 | `README.md`, SPECS §1/§9 | STATUS removed |
+
+## Executor notes
+- Added the necessary structs and assertions. Fixed the bug that prevented testing the `fmt.Err` implementation by passing it through the mock correctly, matching `webtyp.com/fmt` syntax.

@@ -23,6 +23,22 @@ type FakeLister struct {
 	UpdatedRecord model.Model
 	DeletedIDs    []string
 	Err           error // returned by every operation, for error-path clauses
+
+	ActionList []view.Action
+	Ran        []string
+}
+
+func (b *FakeLister) Actions() []view.Action {
+	return b.ActionList
+}
+
+func (b *FakeLister) RunAction(op string, args model.Encodable, done func(error)) {
+	if b.Err != nil {
+		done(b.Err)
+		return
+	}
+	b.Ran = append(b.Ran, op)
+	done(nil)
 }
 
 func (b *FakeLister) List(done func([]model.Model, error)) {
@@ -143,6 +159,15 @@ type Driver struct {
 	// DOM side effect; this exposes the INTENT so the clauses below can
 	// assert it without a live DOM/browser.
 	FocusedFieldID func() string
+
+	// ActionLabels returns the labels of the action controls, in order.
+	ActionLabels func() []string
+	// ActionEnabled returns true if the action control is enabled.
+	ActionEnabled func(op string) bool
+	// ClickAction clicks the action control.
+	ClickAction func(op string)
+	// ConfirmAction accepts the open confirmation; no-op when none is open.
+	ConfirmAction func()
 }
 
 // MockRecord is a simulation record for conformance suite.
@@ -227,6 +252,109 @@ func (m *MockList) Append() model.Fielder {
 
 // Run executes the full set of conformance clauses.
 func Run(t *testing.T, f Factory) {
+	t.Run("actions_render_labels", func(t *testing.T) {
+		fb := &FakeLister{
+			ActionList: []view.Action{
+				{Op: "a", Label: "Action A"},
+				{Op: "b", Label: "Action B"},
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(fb, record)
+
+		driver := f.New(t, p)
+		driver.Mount()
+
+		labels := driver.ActionLabels()
+		if len(labels) != 2 || labels[0] != "Action A" || labels[1] != "Action B" {
+			t.Errorf("expected action labels [Action A, Action B], got %v", labels)
+		}
+	})
+
+	t.Run("actions_disabled_without_items", func(t *testing.T) {
+		fb := &FakeLister{
+			Rows: []model.Model{},
+			ActionList: []view.Action{
+				{Op: "a", Label: "Action A"},
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(fb, record)
+
+		driver := f.New(t, p)
+		driver.Mount() // zero items
+
+		if driver.ActionEnabled("a") {
+			t.Errorf("expected action 'a' to be disabled without items")
+		}
+
+		// Now load some items
+		fb.Rows = []model.Model{&MockRecord{ID: "1", Name: "Alice"}}
+		p.Reload(nil)
+
+		if !driver.ActionEnabled("a") {
+			t.Errorf("expected action 'a' to be enabled with items")
+		}
+	})
+
+	t.Run("action_without_confirm_runs_on_click", func(t *testing.T) {
+		fb := &FakeLister{
+			Rows: []model.Model{&MockRecord{ID: "1", Name: "Alice"}},
+			ActionList: []view.Action{
+				{Op: "a", Label: "Action A"},
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(fb, record)
+
+		driver := f.New(t, p)
+		driver.Mount()
+
+		driver.ClickAction("a")
+
+		if len(fb.Ran) != 1 || fb.Ran[0] != "a" {
+			t.Errorf("expected Ran to be ['a'], got %v", fb.Ran)
+		}
+	})
+
+	t.Run("action_with_confirm_waits", func(t *testing.T) {
+		fb := &FakeLister{
+			Rows: []model.Model{&MockRecord{ID: "1", Name: "Alice"}},
+			ActionList: []view.Action{
+				{Op: "a", Label: "Action A", Confirm: "Are you sure?"},
+			},
+		}
+		record := &MockRecord{}
+		p := view.New(fb, record)
+
+		driver := f.New(t, p)
+		driver.Mount()
+
+		driver.ClickAction("a")
+		if len(fb.Ran) != 0 {
+			t.Errorf("expected Ran to be empty after click on confirmed action, got %v", fb.Ran)
+		}
+
+		driver.ConfirmAction()
+		if len(fb.Ran) != 1 || fb.Ran[0] != "a" {
+			t.Errorf("expected Ran to be ['a'] after confirmation, got %v", fb.Ran)
+		}
+	})
+
+	t.Run("no_actions_without_runner", func(t *testing.T) {
+		b := &listOnlyLister{}
+		record := &MockRecord{}
+		p := view.New(b, record)
+
+		driver := f.New(t, p)
+		driver.Mount()
+
+		labels := driver.ActionLabels()
+		if len(labels) != 0 {
+			t.Errorf("expected 0 action labels for lister without ActionRunner, got %v", labels)
+		}
+	})
+
 	t.Run("mount_triggers_list_load", func(t *testing.T) {
 		fb := &FakeLister{}
 		record := &MockRecord{}

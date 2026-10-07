@@ -173,6 +173,54 @@ func (c *core) update(ids []string, rec model.Model, fields []string, done func(
 	b.Update(ids, rec, fields, done)
 }
 
+func (c *core) Actions() []Action {
+	if runner, ok := c.lister.(ActionRunner); ok {
+		return runner.Actions()
+	}
+	return nil
+}
+
+func (c *core) Run(op string, done func(error)) {
+	if done == nil {
+		done = func(error) {}
+	}
+	runner, ok := c.lister.(ActionRunner)
+	if !ok {
+		done(errUnknownAction(op))
+		return
+	}
+
+	actions := runner.Actions()
+	var action *Action
+	for i := range actions {
+		if actions[i].Op == op {
+			action = &actions[i]
+			break
+		}
+	}
+	if action == nil {
+		done(errUnknownAction(op))
+		return
+	}
+
+	var args model.Encodable
+	if action.Args != nil {
+		records := make([]model.Model, 0, len(c.index))
+		for _, entry := range c.index {
+			records = append(records, entry.rec)
+		}
+		args = action.Args(records)
+	}
+
+	runner.RunAction(op, args, func(err error) {
+		if err != nil {
+			done(err)
+			return
+		}
+		c.Reload(done)
+	})
+}
+
 func (c *core) delete(ids []string, done func(error)) {
 	if done == nil {
 		done = func(error) {}

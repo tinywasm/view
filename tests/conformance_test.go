@@ -23,6 +23,10 @@ func TestConformance(t *testing.T) {
 				Edit:           r.Edit,
 				Cancel:         r.Cancel,
 				FocusedFieldID: r.FocusedFieldID,
+				ActionLabels:   r.ActionLabels,
+				ActionEnabled:  r.ActionEnabled,
+				ClickAction:    r.ClickAction,
+				ConfirmAction:  r.ConfirmAction,
 			}
 		},
 	})
