@@ -269,6 +269,69 @@ The package-level tests also pin two behaviours directly:
 - `TestValidationErrorsTravelThroughDone` — every §5 failure arrives through
   `done` with the exact message, and no return value exists to ignore.
 
+## 9. Actions — commands on the whole list
+
+> STATUS (remove this note when the "view actions" plan lands): this section is the spec of that plan.
+
+**What it is.** An *action* is a command an operator runs on the list as a whole — "Apply the
+pending changes", "Resend", "Recalculate". It is **not** an edit of a record: it has no form, it is
+usually not undoable, and its arguments come from the data on screen (e.g. the fingerprint of the
+plan the operator is looking at), never typed by the operator.
+
+**Why it is not a fourth capability (§4).** §4 says a fourth capability is a design review trigger.
+The review's outcome: a capability is a *kind of write* a backend may or may not support; an action is
+a *named, declared* command — a backend offers a list of them, possibly empty. So actions are
+**data** on the presenter, not a type in the mirroring table: no new wrapper structs.
+
+### Surface
+
+```go
+type Action struct {
+	Op      string    // bare op name; qualified with Ops.Module exactly like List/Save
+	Label   lang.Text // button text (dictionary key)
+	Confirm lang.Text // question asked before running; "" = runs on click
+	// Args builds the op's arguments from the records of the last Reload.
+	// nil = the op takes no arguments.
+	Args func(records []model.Model) model.Encodable
+}
+
+// Actioner is implemented by EVERY Presenter view.New returns.
+type Actioner interface {
+	Actions() []Action              // the backend's actions; empty when it offers none
+	Run(op string, done func(error)) // see behaviour below
+}
+
+// ActionRunner is the Lister-side half, implemented by the Lister NewCallerLister
+// returns (and by any hand-written Lister that offers actions).
+type ActionRunner interface {
+	Actions() []Action
+	RunAction(op string, args model.Encodable, done func(error))
+}
+```
+
+`Ops` gains `Actions []Action`.
+
+### Behaviour
+
+- `Actions()` returns the lister's actions when it implements `ActionRunner`, else an empty slice.
+- `Run(op, done)`:
+  1. `done` nil → replaced by a no-op (same rule as `Reload`).
+  2. unknown `op` → `done(error)` with message `view: Run: unknown action <op>`.
+  3. `Args` non-nil → called with the records indexed by the last `Reload`, in list order.
+  4. `RunAction(op, args, cb)`; an error is delivered through `done` and **no reload** happens.
+  5. On success, `Reload(done)`: the list shows the state after the action.
+- `callerLister.RunAction` = `c.caller.Call(<Module>.<Op>, args, nil, done)` — the qualified name is
+  composed by `Ops.qualified`, never by a consumer.
+- Constructing `NewCallerLister` with an action whose `Op` or `Label` is empty panics:
+  `view: NewCallerLister: Action.Op is required` / `… Action.Label is required`.
+
+### Renderer obligations (checked by `conformance.Run`)
+
+- Draw one control per action, labelled with its `Label`.
+- Disable every action control while the presenter has **no items** (an action runs over the list)
+  and while that action is running (no double submit).
+- When `Confirm` is non-empty, ask it and run only on explicit confirmation.
+
 ---
 
 ## Related documents
