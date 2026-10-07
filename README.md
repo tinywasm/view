@@ -24,6 +24,7 @@ a defect — report it.
 | Clear the selection | `p.Deselect()` |
 | Filter the list as the user types | `p.Filter(term)` (local, case-insensitive over Label+Description) |
 | Connect over a transport (mcp, http) | `view.NewCallerLister(caller, view.Ops{…}, newList)` then `view.New(l, &X{}, …)` |
+| Run a command on the whole list | `Ops.Actions` + `presenter.(view.Actioner).Run(op, done)` |
 | Show an error/success message | Renderer's job: branch on the `error` passed to the `done` callback of `Reload`/`Save`/`Delete` |
 | Test a renderer implementation | `conformance.Run(t, factory)` — it must pass every clause |
 | Simulate a view without a browser | `view/mock.Renderer` |
@@ -76,7 +77,13 @@ owns, then build the view over it:
 
 ```go
 l := view.NewCallerLister(caller,
-	view.Ops{Module: "device", List: "list", Save: "save", Delete: "delete"},
+	view.Ops{
+		Module: "device", List: "list", Save: "save", Delete: "delete",
+		Actions: []view.Action{{
+			Op: "apply_network", Label: "Apply",
+			Args: func(recs []model.Model) model.Encodable { return &ApplyArgs{Fingerprint: recs[0].(*Device).Plan} },
+		}},
+	},
 	func() model.ModelSlice { return &DeviceList{} })
 view.New(b, &Device{}, view.WithTitle("Computadores"))
 ```

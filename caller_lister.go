@@ -18,11 +18,12 @@ import (
 // An empty op name means the remote side does not offer that operation, and
 // the returned Lister will not carry the matching capability.
 type Ops struct {
-	Module string
-	List   string
-	Save   string
-	Update string
-	Delete string
+	Module  string
+	List    string
+	Save    string
+	Update  string
+	Delete  string
+	Actions []Action
 }
 
 // qualified returns a copy of o with every non-empty op name prefixed by
@@ -38,6 +39,13 @@ func (o Ops) qualified() Ops {
 	}
 	if o.Delete != "" {
 		q.Delete = o.Module + "." + o.Delete
+	}
+	if len(o.Actions) > 0 {
+		q.Actions = make([]Action, len(o.Actions))
+		for i, a := range o.Actions {
+			q.Actions[i] = a
+			q.Actions[i].Op = o.Module + "." + a.Op
+		}
 	}
 	return q
 }
@@ -65,7 +73,15 @@ func NewCallerLister(c router.Caller, ops Ops, newList func() model.ModelSlice) 
 	if newList == nil {
 		panic("view: NewCallerLister: newList is required")
 	}
-	cb := &callerLister{caller: c, ops: ops.qualified(), newList: newList}
+	for _, act := range ops.Actions {
+		if act.Op == "" {
+			panic("view: NewCallerLister: Action.Op is required")
+		}
+		if act.Label == "" {
+			panic("view: NewCallerLister: Action.Label is required")
+		}
+	}
+	cb := &callerLister{caller: c, ops: ops.qualified(), rawActions: ops.Actions, newList: newList}
 	hasS := ops.Save != ""
 	hasU := ops.Update != ""
 	hasD := ops.Delete != ""
@@ -90,9 +106,38 @@ func NewCallerLister(c router.Caller, ops Ops, newList func() model.ModelSlice) 
 }
 
 type callerLister struct {
-	caller  router.Caller
-	ops     Ops
-	newList func() model.ModelSlice
+	caller     router.Caller
+	ops        Ops
+	rawActions []Action // The UNPREFIXED bare operations to match p.Run(op)
+	newList    func() model.ModelSlice
+}
+
+func (b *callerLister) Actions() []Action {
+	return b.rawActions
+}
+
+func (b *callerLister) RunAction(op string, args model.Encodable, done func(error)) {
+	if done == nil {
+		done = func(error) {}
+	}
+	var qualifiedOp string
+	for _, act := range b.ops.Actions {
+		// act.Op is prefixed with Module in ops.qualified()
+		// We can strip it or simply construct it here
+		expected := op
+		if b.ops.Module != "" {
+			expected = b.ops.Module + "." + op
+		}
+		if act.Op == expected {
+			qualifiedOp = act.Op
+			break
+		}
+	}
+	if qualifiedOp == "" {
+		done(fmt.Err("view: Run: unknown action " + op))
+		return
+	}
+	b.caller.Call(qualifiedOp, args, nil, done)
 }
 
 func (b *callerLister) list(done func([]model.Model, error)) {
@@ -132,6 +177,18 @@ func (b *callerLister) update(ids []string, rec model.Model, fields []string, do
 func (b *callerLister) delete(ids []string, done func(error)) {
 	b.caller.Call(b.ops.Delete, &deleteArgs{ids: ids}, nil, done)
 }
+
+// Compile-time assertions for ActionRunner on all capability wrappers
+var (
+	_ ActionRunner = (*callerList)(nil)
+	_ ActionRunner = (*callerSave)(nil)
+	_ ActionRunner = (*callerUpdate)(nil)
+	_ ActionRunner = (*callerDelete)(nil)
+	_ ActionRunner = (*callerSaveUpdate)(nil)
+	_ ActionRunner = (*callerSaveDelete)(nil)
+	_ ActionRunner = (*callerUpdateDelete)(nil)
+	_ ActionRunner = (*callerCRUD)(nil)
+)
 
 // The capability wrappers below follow the pattern documented in lister.go:
 // thin structs whose only difference is the method SET. See it before editing.

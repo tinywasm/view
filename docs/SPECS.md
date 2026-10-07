@@ -47,6 +47,23 @@ type Lister interface {
 	List(done func(rows []model.Model, err error))
 }
 
+type Action struct {
+	Op      string
+	Label   lang.Text
+	Confirm lang.Text
+	Args    func(records []model.Model) model.Encodable
+}
+
+type Actioner interface {
+	Actions() []Action
+	Run(op string, done func(error))
+}
+
+type ActionRunner interface {
+	Actions() []Action
+	RunAction(op string, args model.Encodable, done func(error))
+}
+
 // Presenter is the UI-agnostic core behind any CRUD view.
 type Presenter interface {
 	Title() string
@@ -75,11 +92,12 @@ type Deleter interface {
 }
 
 type Ops struct {
-	Module string
-	List   string
-	Save   string
-	Update string
-	Delete string
+	Module  string
+	List    string
+	Save    string
+	Update  string
+	Delete  string
+	Actions []Action
 }
 
 func NewCallerLister(c router.Caller, ops Ops, newList func() model.ModelSlice) Lister
@@ -270,8 +288,6 @@ The package-level tests also pin two behaviours directly:
   `done` with the exact message, and no return value exists to ignore.
 
 ## 9. Actions — commands on the whole list
-
-> STATUS (remove this note when the "view actions" plan lands): this section is the spec of that plan.
 
 **What it is.** An *action* is a command an operator runs on the list as a whole — "Apply the
 pending changes", "Resend", "Recalculate". It is **not** an edit of a record: it has no form, it is

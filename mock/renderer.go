@@ -8,12 +8,13 @@ import (
 
 // Renderer is a headless reference renderer for browser-less simulation and tests.
 type Renderer struct {
-	p        view.Presenter
-	form     map[string]string
-	baseline map[string]string // last loaded/reset value per field — see isDirty
-	focused  string            // field name New()/Edit() last targeted (see FocusedFieldID)
-	loadedID string            // id of the record Select loaded ("": a new-record draft) — see Save
-	nextID   int               // minted ids for new-record drafts — see Save
+	p            view.Presenter
+	form         map[string]string
+	baseline     map[string]string // last loaded/reset value per field — see isDirty
+	focused      string            // field name New()/Edit() last targeted (see FocusedFieldID)
+	loadedID     string            // id of the record Select loaded ("": a new-record draft) — see Save
+	nextID       int               // minted ids for new-record drafts — see Save
+	openConfirm  string            // op of the currently open confirmation dialog ("" = none)
 }
 
 // New creates a reference renderer instance for a given Presenter.
@@ -134,6 +135,52 @@ func (r *Renderer) Edit(id string) {
 
 // FocusedFieldID returns the field name New()/Edit() last targeted.
 func (r *Renderer) FocusedFieldID() string { return r.focused }
+
+// ActionLabels returns the labels of the action controls, in order.
+func (r *Renderer) ActionLabels() []string {
+	if a, ok := r.p.(view.Actioner); ok {
+		actions := a.Actions()
+		labels := make([]string, len(actions))
+		for i, act := range actions {
+			labels[i] = string(act.Label)
+		}
+		return labels
+	}
+	return nil
+}
+
+// ActionEnabled returns true if the action control is enabled.
+func (r *Renderer) ActionEnabled(op string) bool {
+	// Disabled when presenter has no items
+	return len(r.p.Items()) > 0
+}
+
+// ClickAction clicks the action control.
+func (r *Renderer) ClickAction(op string) {
+	if a, ok := r.p.(view.Actioner); ok {
+		actions := a.Actions()
+		for _, act := range actions {
+			if act.Op == op {
+				if string(act.Confirm) != "" {
+					r.openConfirm = op
+				} else {
+					a.Run(op, func(error) {})
+				}
+				return
+			}
+		}
+	}
+}
+
+// ConfirmAction accepts the open confirmation; no-op when none is open.
+func (r *Renderer) ConfirmAction() {
+	if r.openConfirm != "" {
+		if a, ok := r.p.(view.Actioner); ok {
+			a.Run(r.openConfirm, func(error) {})
+		}
+		r.openConfirm = ""
+	}
+}
 
 // Cancel simulates the "↺" (undo) action: abandons the draft/selection and
 // clears the tracked focus — nothing must be left focused after a cancel.

@@ -173,6 +173,54 @@ func (c *core) update(ids []string, rec model.Model, fields []string, done func(
 	b.Update(ids, rec, fields, done)
 }
 
+func (c *core) Actions() []Action {
+	if runner, ok := c.lister.(ActionRunner); ok {
+		return runner.Actions()
+	}
+	return nil
+}
+
+func (c *core) Run(op string, done func(error)) {
+	if done == nil {
+		done = func(error) {}
+	}
+	runner, ok := c.lister.(ActionRunner)
+	if !ok {
+		done(fmt.Err("view: Run: unknown action " + op))
+		return
+	}
+
+	actions := runner.Actions()
+	var action *Action
+	for i := range actions {
+		if actions[i].Op == op {
+			action = &actions[i]
+			break
+		}
+	}
+	if action == nil {
+		done(fmt.Err("view: Run: unknown action " + op))
+		return
+	}
+
+	var args model.Encodable
+	if action.Args != nil {
+		records := make([]model.Model, 0, len(c.index))
+		for _, entry := range c.index {
+			records = append(records, entry.rec)
+		}
+		args = action.Args(records)
+	}
+
+	runner.RunAction(op, args, func(err error) {
+		if err != nil {
+			done(err)
+			return
+		}
+		c.Reload(done)
+	})
+}
+
 func (c *core) delete(ids []string, done func(error)) {
 	if done == nil {
 		done = func(error) {}
@@ -202,12 +250,28 @@ type saveable struct {
 	*core
 }
 
+func (s *saveable) Actions() []Action {
+	return s.core.Actions()
+}
+
+func (s *saveable) Run(op string, done func(error)) {
+	s.core.Run(op, done)
+}
+
 func (s *saveable) Save(recs []model.Model, done func(error)) {
 	s.save(recs, done)
 }
 
 type updatable struct {
 	*core
+}
+
+func (u *updatable) Actions() []Action {
+	return u.core.Actions()
+}
+
+func (u *updatable) Run(op string, done func(error)) {
+	u.core.Run(op, done)
 }
 
 func (u *updatable) Update(ids []string, rec model.Model, fields []string, done func(error)) {
@@ -218,12 +282,28 @@ type deletable struct {
 	*core
 }
 
+func (d *deletable) Actions() []Action {
+	return d.core.Actions()
+}
+
+func (d *deletable) Run(op string, done func(error)) {
+	d.core.Run(op, done)
+}
+
 func (d *deletable) Delete(ids []string, done func(error)) {
 	d.delete(ids, done)
 }
 
 type saveableUpdatable struct {
 	*core
+}
+
+func (su *saveableUpdatable) Actions() []Action {
+	return su.core.Actions()
+}
+
+func (su *saveableUpdatable) Run(op string, done func(error)) {
+	su.core.Run(op, done)
 }
 
 func (su *saveableUpdatable) Save(recs []model.Model, done func(error)) {
@@ -238,6 +318,14 @@ type saveableDeletable struct {
 	*core
 }
 
+func (sd *saveableDeletable) Actions() []Action {
+	return sd.core.Actions()
+}
+
+func (sd *saveableDeletable) Run(op string, done func(error)) {
+	sd.core.Run(op, done)
+}
+
 func (sd *saveableDeletable) Save(recs []model.Model, done func(error)) {
 	sd.save(recs, done)
 }
@@ -250,6 +338,14 @@ type updatableDeletable struct {
 	*core
 }
 
+func (ud *updatableDeletable) Actions() []Action {
+	return ud.core.Actions()
+}
+
+func (ud *updatableDeletable) Run(op string, done func(error)) {
+	ud.core.Run(op, done)
+}
+
 func (ud *updatableDeletable) Update(ids []string, rec model.Model, fields []string, done func(error)) {
 	ud.update(ids, rec, fields, done)
 }
@@ -260,6 +356,14 @@ func (ud *updatableDeletable) Delete(ids []string, done func(error)) {
 
 type crud struct {
 	*core
+}
+
+func (c *crud) Actions() []Action {
+	return c.core.Actions()
+}
+
+func (c *crud) Run(op string, done func(error)) {
+	c.core.Run(op, done)
 }
 
 func (c *crud) Save(recs []model.Model, done func(error)) {
