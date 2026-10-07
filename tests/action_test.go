@@ -121,14 +121,14 @@ func TestActions(t *testing.T) {
 	t.Run("Every presenter variant returned by view.New satisfies view.Actioner", func(t *testing.T) {
 		record := &conformance.MockRecord{}
 		cases := []view.Lister{
-			&listOnlyLister{}, // *core
-			&listSaveLister{}, // *saveable
-			&listUpdateLister{}, // *updatable
-			&listDeleteLister{}, // *deletable
-			&listSaveUpdateLister{}, // *saveableUpdatable
-			&listSaveDeleteLister{}, // *saveableDeletable
+			&listOnlyLister{},         // *core
+			&listSaveLister{},         // *saveable
+			&listUpdateLister{},       // *updatable
+			&listDeleteLister{},       // *deletable
+			&listSaveUpdateLister{},   // *saveableUpdatable
+			&listSaveDeleteLister{},   // *saveableDeletable
 			&listUpdateDeleteLister{}, // *updatableDeletable
-			&listCRUDLister{}, // *crud
+			&listCRUDLister{},         // *crud
 		}
 		for i, lister := range cases {
 			p := view.New(lister, record)
@@ -158,24 +158,39 @@ func assertPanic(t *testing.T, expected string, f func()) {
 // Add these to match module_test.go / backend_test.go mocks:
 type listOnlyLister struct{ conformance.FakeLister }
 type listSaveLister struct{ conformance.FakeLister }
+
 func (l *listSaveLister) Save(recs []model.Model, done func(error)) {}
+
 type listUpdateLister struct{ conformance.FakeLister }
+
 func (l *listUpdateLister) Update(ids []string, rec model.Model, fields []string, done func(error)) {}
+
 type listDeleteLister struct{ conformance.FakeLister }
+
 func (l *listDeleteLister) Delete(ids []string, done func(error)) {}
+
 type listSaveUpdateLister struct{ conformance.FakeLister }
+
 func (l *listSaveUpdateLister) Save(recs []model.Model, done func(error)) {}
-func (l *listSaveUpdateLister) Update(ids []string, rec model.Model, fields []string, done func(error)) {}
+func (l *listSaveUpdateLister) Update(ids []string, rec model.Model, fields []string, done func(error)) {
+}
+
 type listSaveDeleteLister struct{ conformance.FakeLister }
+
 func (l *listSaveDeleteLister) Save(recs []model.Model, done func(error)) {}
-func (l *listSaveDeleteLister) Delete(ids []string, done func(error)) {}
+func (l *listSaveDeleteLister) Delete(ids []string, done func(error))     {}
+
 type listUpdateDeleteLister struct{ conformance.FakeLister }
-func (l *listUpdateDeleteLister) Update(ids []string, rec model.Model, fields []string, done func(error)) {}
+
+func (l *listUpdateDeleteLister) Update(ids []string, rec model.Model, fields []string, done func(error)) {
+}
 func (l *listUpdateDeleteLister) Delete(ids []string, done func(error)) {}
+
 type listCRUDLister struct{ conformance.FakeLister }
-func (l *listCRUDLister) Save(recs []model.Model, done func(error)) {}
+
+func (l *listCRUDLister) Save(recs []model.Model, done func(error))                               {}
 func (l *listCRUDLister) Update(ids []string, rec model.Model, fields []string, done func(error)) {}
-func (l *listCRUDLister) Delete(ids []string, done func(error)) {}
+func (l *listCRUDLister) Delete(ids []string, done func(error))                                   {}
 
 type testCallerCall struct {
 	op   string

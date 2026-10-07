@@ -8,13 +8,13 @@ import (
 
 // Renderer is a headless reference renderer for browser-less simulation and tests.
 type Renderer struct {
-	p            view.Presenter
-	form         map[string]string
-	baseline     map[string]string // last loaded/reset value per field — see isDirty
-	focused      string            // field name New()/Edit() last targeted (see FocusedFieldID)
-	loadedID     string            // id of the record Select loaded ("": a new-record draft) — see Save
-	nextID       int               // minted ids for new-record drafts — see Save
-	openConfirm  string            // op of the currently open confirmation dialog ("" = none)
+	p           view.Presenter
+	form        map[string]string
+	baseline    map[string]string // last loaded/reset value per field — see isDirty
+	focused     string            // field name New()/Edit() last targeted (see FocusedFieldID)
+	loadedID    string            // id of the record Select loaded ("": a new-record draft) — see Save
+	nextID      int               // minted ids for new-record drafts — see Save
+	openConfirm string            // op of the currently open confirmation dialog ("" = none)
 }
 
 // New creates a reference renderer instance for a given Presenter.

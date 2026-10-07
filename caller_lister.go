@@ -120,24 +120,14 @@ func (b *callerLister) RunAction(op string, args model.Encodable, done func(erro
 	if done == nil {
 		done = func(error) {}
 	}
-	var qualifiedOp string
-	for _, act := range b.ops.Actions {
-		// act.Op is prefixed with Module in ops.qualified()
-		// We can strip it or simply construct it here
-		expected := op
-		if b.ops.Module != "" {
-			expected = b.ops.Module + "." + op
-		}
-		if act.Op == expected {
-			qualifiedOp = act.Op
-			break
+	// rawActions and ops.Actions share indexes: ops.Actions[i] is rawActions[i] qualified.
+	for i, act := range b.rawActions {
+		if act.Op == op {
+			b.caller.Call(b.ops.Actions[i].Op, args, nil, done)
+			return
 		}
 	}
-	if qualifiedOp == "" {
-		done(fmt.Err("view: Run: unknown action " + op))
-		return
-	}
-	b.caller.Call(qualifiedOp, args, nil, done)
+	done(errUnknownAction(op))
 }
 
 func (b *callerLister) list(done func([]model.Model, error)) {

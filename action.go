@@ -1,9 +1,15 @@
 package view
 
 import (
+	"webtyp.com/fmt"
 	"webtyp.com/lang"
 	"webtyp.com/model"
 )
+
+// errUnknownActionPrefix is the exact message of SPECS §9 for an op no action declares.
+const errUnknownActionPrefix = "view: Run: unknown action "
+
+func errUnknownAction(op string) error { return fmt.Err(errUnknownActionPrefix + op) }
 
 // Action is a command an operator runs on the list as a whole.
 // It is not an edit of a record: it has no form, it is usually not undoable,
